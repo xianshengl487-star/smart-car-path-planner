@@ -1,0 +1,35 @@
+# Python caches and local environments
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Local agent / orchestration scratch data
+.claude/
+.orchestration/
+
+# Generated outputs and packaged artifacts
+outputs/
+*.apk
+*.aab
+*.zip
+
+# Android / Gradle generated files
+android_native/.gradle/
+android_native/build/
+android_native/app/build/
+*.iml
+.idea/
+
+# Generated embedded export artifacts
+embedded/generated/
+versions/*/embedded/generated/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*.tmp

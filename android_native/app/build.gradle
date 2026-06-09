@@ -1,0 +1,60 @@
+plugins {
+    id "com.android.application"
+}
+
+def plannerAppIdSuffix = (project.findProperty("plannerAppIdSuffix") ?: "").toString()
+def plannerAppName = (project.findProperty("plannerAppName") ?: "智能车路径规划").toString()
+def plannerVersionCode = (project.findProperty("plannerVersionCode") ?: "2").toString().toInteger()
+def plannerVersionName = (project.findProperty("plannerVersionName") ?: "1.1").toString()
+
+android {
+    namespace = "com.smartcar.planner"
+    compileSdk = 35
+
+    defaultConfig {
+        applicationId = "com.smartcar.planner${plannerAppIdSuffix}"
+        minSdk = 23
+        targetSdk = 35
+        versionCode = plannerVersionCode
+        versionName = plannerVersionName
+        resValue "string", "app_name", plannerAppName
+    }
+
+    signingConfigs {
+        debug {
+            // Uses the default Android debug keystore.
+            // This allows easy "release" builds for internal testing / distribution
+            // without requiring a custom keystore.
+            // On a real dev machine with Android SDK, ~/.android/debug.keystore usually exists.
+            // For a proper Google Play release, create a dedicated keystore and update here + package script.
+            storeFile file(System.getProperty("user.home") + "/.android/debug.keystore")
+            storePassword "android"
+            keyAlias "AndroidDebugKey"
+            keyPassword "android"
+        }
+    }
+
+    buildTypes {
+        debug {
+            debuggable true
+            minifyEnabled false
+        }
+        release {
+            debuggable false
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    // The app is pure Java + custom View, no extra resources beyond the style
+}
+
+dependencies {
+    // No external dependencies; all planner logic is self-contained in the planner package
+}

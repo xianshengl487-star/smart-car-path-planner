@@ -1,0 +1,9 @@
+{
+  "name": "Smart Car Path Planner",
+  "short_name": "PathPlanner",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f4efe4",
+  "theme_color": "#26372b",
+  "icons": []
+}

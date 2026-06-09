@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#26372b" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="stylesheet" href="./styles.css" />
+    <title>智能车路径规划移动端</title>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <p class="eyebrow">STM32 / Vision / Sokoban</p>
+        <h1>手机跑图测试台</h1>
+        <p class="hero-copy">旧版浏览器演示：选择 101/102/103 规则，先识别箱子/目标、再推箱，可带炸弹障碍。</p>
+      </section>
+
+      <section class="panel controls">
+        <label>
+          关卡
+          <select id="levelSelect">
+            <option value="101">101 只推箱子</option>
+            <option value="102">102 靠近识别 + 推箱</option>
+            <option value="103">103 识别箱/目标 + 炸弹</option>
+          </select>
+        </label>
+        <label>
+          画笔
+          <select id="brushSelect"></select>
+        </label>
+        <button id="solveBtn">跑图测试</button>
+        <button id="playBtn">播放路径</button>
+        <button id="resetBtn">恢复模板</button>
+        <button id="saveBtn">保存本机</button>
+      </section>
+
+      <section class="board-wrap">
+        <div id="board" class="board" aria-label="地图编辑区"></div>
+      </section>
+
+      <section class="panel stats">
+        <div>
+          <span>状态</span>
+          <strong id="statusText">等待编辑</strong>
+        </div>
+        <div>
+          <span>总代价</span>
+          <strong id="costText">-</strong>
+        </div>
+        <div>
+          <span>识别步数</span>
+          <strong id="scanText">-</strong>
+        </div>
+        <div>
+          <span>扩展节点</span>
+          <strong id="expandedText">-</strong>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>路径动作</h2>
+        <pre id="actionsText">点击“跑图测试”后显示动作序列。</pre>
+      </section>
+    </main>
+    <script src="./app.js"></script>
+    <script>
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.register("./sw.js").catch(() => {});
+      }
+    </script>
+  </body>
+</html>
