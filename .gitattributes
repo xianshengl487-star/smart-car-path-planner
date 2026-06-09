@@ -20,3 +20,6 @@
 *.jpeg binary
 *.apk binary
 *.zip binary
+
+sokoban_raw/*.txt text eol=lf -whitespace
+sokoban_raw2/*.sok text eol=lf -whitespace
