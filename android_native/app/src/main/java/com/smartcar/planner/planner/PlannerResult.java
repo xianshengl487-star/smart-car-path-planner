@@ -15,7 +15,7 @@ public final class PlannerResult {
     public final List<Cell> playerPath = new ArrayList<>();
     public final List<String> recognitionOrder = new ArrayList<>();
 
-    // Diagnostic counters -- describe why a solve failed or what was pruned.
+    // Diagnostic counters.
     public int prunedByDeadlock;
     public int prunedByActionLimit;
     public int prunedByBestCost;
@@ -24,8 +24,14 @@ public final class PlannerResult {
     public boolean expandedLimitHit;
     public boolean frontierLimitHit;
     public boolean actionLimitHit;
+    // Bomb diagnostics.
+    public int bombMovesGenerated;
+    public int bombExplosionsGenerated;
+    public int bombMovesPruned;
+    public int bombRelevantWallPruned;
+    public boolean bombPriorityUsed;
+    public int bombDepthPruned;
 
-    /** Build a one-line summary of diagnostic counters for display. */
     public String diagnosticsString() {
         StringBuilder sb = new StringBuilder();
         if (timeoutHit) sb.append("timeout ");
@@ -36,6 +42,13 @@ public final class PlannerResult {
         if (prunedByActionLimit > 0) sb.append("actionPruned=").append(prunedByActionLimit).append(' ');
         if (prunedByBestCost > 0) sb.append("costPruned=").append(prunedByBestCost).append(' ');
         if (prunedByFrontierTrim > 0) sb.append("frontierTrimmed=").append(prunedByFrontierTrim).append(' ');
+        if (bombMovesGenerated > 0 || bombExplosionsGenerated > 0) {
+            sb.append("bombMoves=").append(bombMovesGenerated)
+              .append(" bombBoom=").append(bombExplosionsGenerated).append(' ');
+        }
+        if (bombRelevantWallPruned > 0) sb.append("bombWallPruned=").append(bombRelevantWallPruned).append(' ');
+        if (bombDepthPruned > 0) sb.append("bombDepthPruned=").append(bombDepthPruned).append(' ');
+        if (bombPriorityUsed) sb.append("bombPriority ");
         return sb.toString().trim();
     }
 }

@@ -27,7 +27,6 @@ public final class NativePlanner {
         map.rebuildObjects();
         PlannerResult result = new PlannerResult();
 
-        // Validate the map before attempting to solve.
         GridMap.ValidationResult validation = map.validate();
         if (!validation.ok) {
             result.message = validation.message;
@@ -59,7 +58,6 @@ public final class NativePlanner {
         result.message = search.message;
         result.expanded = search.expanded;
         result.maxFrontierSeen = search.maxFrontierSeen;
-        // Copy diagnostic counters from the search result.
         result.prunedByDeadlock = search.prunedByDeadlock;
         result.prunedByActionLimit = search.prunedByActionLimit;
         result.prunedByBestCost = search.prunedByBestCost;
@@ -68,14 +66,18 @@ public final class NativePlanner {
         result.expandedLimitHit = search.expandedLimitHit;
         result.frontierLimitHit = search.frontierLimitHit;
         result.actionLimitHit = search.actionLimitHit;
+        result.bombMovesGenerated = search.bombMovesGenerated;
+        result.bombExplosionsGenerated = search.bombExplosionsGenerated;
+        result.bombMovesPruned = search.bombMovesPruned;
+        result.bombRelevantWallPruned = search.bombRelevantWallPruned;
+        result.bombPriorityUsed = search.bombPriorityUsed;
+        result.bombDepthPruned = search.bombDepthPruned;
         if (!search.solved) return result;
 
         result.actions.addAll(search.actions);
         result.playerPath.addAll(search.pathWithoutFirst());
         result.pushes = search.pushes;
         result.totalCost = result.actions.size();
-        // Post-search action count check: if the final plan exceeds maxActions
-        // and the mode enforces it, reject the solution with a clear message.
         if (limits.enforceActionLimitDuringSearch && result.actions.size() > limits.maxActions) {
             result.solved = false;
             result.actionLimitHit = true;
@@ -98,16 +100,16 @@ public final class NativePlanner {
         int[] startDestroyedWalls = new int[0];
         PriorityQueue<Node> open = new PriorityQueue<>(NativePlanner::compareNodes);
         HashMap<String, Integer> best = new HashMap<>();
+
+        // Precompute a heuristic score for each destructible wall so that bomb
+        // moves can be scored by the relevance of the wall they will eventually
+        // destroy (see bombRelevanceScore).
+        int[] wallScore = precomputeWallScores(map, startBoxes);
+
         Node start = new Node(
-            startPlayer,
-            startHeading,
-            startBoxes,
-            startBombs,
-            startDestroyedWalls,
-            0,
-            priority(map, limits, 0, startPlayer, startBoxes, startBombs, startDestroyedWalls),
-            new ArrayList<>(),
-            new ArrayList<>()
+            startPlayer, startHeading, startBoxes, startBombs, startDestroyedWalls,
+            0, priority(map, limits, 0, startPlayer, startBoxes, startBombs, startDestroyedWalls, wallScore),
+            new ArrayList<>(), new ArrayList<>(), 0
         );
         start.path.add(startPlayer);
         open.add(start);
@@ -116,6 +118,15 @@ public final class NativePlanner {
         int expanded = 0;
         int maxFrontierSeen = 1;
         while (!open.isEmpty()) {
+            // Cancellation support: if the calling thread was interrupted (e.g.
+            // Activity destroyed or a future cancel button), return immediately.
+            if (Thread.currentThread().isInterrupted()) {
+                failed.message = "求解已取消";
+                failed.timeoutHit = true;
+                failed.expanded = expanded;
+                failed.maxFrontierSeen = maxFrontierSeen;
+                return failed;
+            }
             if (System.currentTimeMillis() - startMillis > limits.maxMillis) {
                 failed.message = "达到时间限制 " + limits.maxMillis + "ms，搜索未完成";
                 failed.timeoutHit = true;
@@ -123,22 +134,18 @@ public final class NativePlanner {
                 failed.maxFrontierSeen = maxFrontierSeen;
                 return failed;
             }
-            if (limits.enforceActionLimitDuringSearch && expanded >= limits.maxExpanded) {
-                failed.message = "达到扩展节点限制 " + limits.maxExpanded;
+            if (expanded >= limits.maxExpanded) {
+                if (limits.enforceActionLimitDuringSearch) {
+                    failed.message = "达到扩展节点限制 " + limits.maxExpanded;
+                } else {
+                    failed.message = "达到搜索节点预算 " + limits.maxExpanded + "（严格模式下仍无法找到更优解）";
+                }
                 failed.expandedLimitHit = true;
                 failed.expanded = expanded;
                 failed.maxFrontierSeen = maxFrontierSeen;
                 return failed;
             }
-            if (!limits.enforceActionLimitDuringSearch && expanded >= limits.maxExpanded) {
-                // In strict mode we still cap expanded to avoid infinite loops,
-                // but the message clarifies it is not an action count problem.
-                failed.message = "达到搜索节点预算 " + limits.maxExpanded + "（严格模式下仍无法找到更优解）";
-                failed.expandedLimitHit = true;
-                failed.expanded = expanded;
-                failed.maxFrontierSeen = maxFrontierSeen;
-                return failed;
-            }
+
             Node node = open.poll();
             String nodeKey = stateKey(node.player, node.heading, node.boxes, node.bombs, node.destroyedWalls);
             Integer known = best.get(nodeKey);
@@ -153,144 +160,58 @@ public final class NativePlanner {
                 ok.pushes = countPushes(node.actions);
                 ok.expanded = expanded;
                 ok.maxFrontierSeen = maxFrontierSeen;
+                // Carry over accumulated diagnostic counters from the search state.
+                ok.prunedByDeadlock = failed.prunedByDeadlock;
+                ok.prunedByActionLimit = failed.prunedByActionLimit;
+                ok.prunedByBestCost = failed.prunedByBestCost;
+                ok.prunedByFrontierTrim = failed.prunedByFrontierTrim;
+                ok.bombMovesGenerated = failed.bombMovesGenerated;
+                ok.bombExplosionsGenerated = failed.bombExplosionsGenerated;
+                ok.bombMovesPruned = failed.bombMovesPruned;
+                ok.bombRelevantWallPruned = failed.bombRelevantWallPruned;
+                ok.bombPriorityUsed = failed.bombPriorityUsed;
+                ok.bombDepthPruned = failed.bombDepthPruned;
                 return ok;
             }
 
-            // forceBombFirst is now a priority bonus, not a hard constraint.
-            // Boxes can still be pushed even when bombs exist; they are just
-            // explored after bomb pushes so the solver prefers bomb-first when
-            // it leads to a solution, without falsely marking solvable maps as
-            // "no solution".
+            // --- Determine search mode ---
+            // preferBombs: in non-strict mode when bombs are live and no wall
+            // has been destroyed yet, we expand bomb moves FIRST so that the
+            // open list is seeded with bomb-relevant states before box moves.
+            // This is an ENUMERATION ORDER preference, NOT a hard constraint.
+            // Box pushes are always enumerated; they are simply inserted into
+            // the open list after bomb pushes, so A* naturally explores
+            // bomb-first paths earlier.
             boolean preferBombs = !limits.strictShortest
                 && map.allowBombPush
                 && node.destroyedWalls.length == 0
                 && hasLiveBomb(node.bombs);
+
             Occupancy occupancy = buildOccupancy(node.boxes, node.bombs);
-            Reachability reach = computeReachability(map, node, occupancy, preferBombs);
+            Reachability reach = computeReachability(map, node, occupancy);
 
-            // When preferBombs is active, we still enumerate ALL box pushes
-            // (the old code used "break" which skipped all boxes). The ordering
-            // in the open list naturally prefers bomb pushes because they are
-            // inserted first with a lower g, so box pushes only get explored if
-            // they lead to a better path. This prevents false "无解" on maps
-            // where pushing a box first is necessary.
-            for (int boxIndex = 0; boxIndex < node.boxes.length; boxIndex++) {
-                Cell box = node.boxes[boxIndex];
-                if (box == null) continue;
-                for (int[] dir : DIRS) {
-                    int dr = dir[0];
-                    int dc = dir[1];
-                    char pushHeading = (char) dir[2];
-                    Cell stance = new Cell(box.row - dr, box.col - dc);
-                    if (!reach.canReach(stance, pushHeading)) continue;
-
-                    Cell pushed = new Cell(box.row + dr, box.col + dc);
-                    if (
-                        isWallDynamic(map, pushed.row, pushed.col, node.destroyedWalls)
-                            || occupancy.hasBox(pushed)
-                            || occupancy.hasBomb(pushed)
-                    ) {
-                        continue;
-                    }
-
-                    Cell[] nextBoxes = copyCells(node.boxes);
-                    boolean delivered = pushed.equals(map.goals[boxIndex + 1]);
-                    nextBoxes[boxIndex] = delivered ? null : pushed;
-                    if (!delivered && isDeadlock(map, pushed, boxIndex + 1, nextBoxes, node.destroyedWalls)) {
-                        failed.prunedByDeadlock++;
-                        continue;
-                    }
-
-                    TransitionResult transition = appendTransition(
-                        map,
-                        limits,
-                        actionOffset,
-                        open,
-                        best,
-                        node,
-                        nextBoxes,
-                        node.bombs,
-                        node.destroyedWalls,
-                        box,
-                        pushHeading,
-                        reach,
-                        stance,
-                        Character.toString(pushHeading)
-                    );
-                    maxFrontierSeen = Math.max(maxFrontierSeen, transition.maxFrontierSeen);
-                    failed.prunedByActionLimit += transition.prunedByActionLimit;
-                    failed.prunedByBestCost += transition.prunedByBestCost;
-                    failed.prunedByFrontierTrim += transition.prunedByFrontierTrim;
-                    if (transition.frontierLimitHit) {
-                        failed.message = "达到 frontier 大小限制 " + limits.maxFrontier;
-                        failed.frontierLimitHit = true;
-                        failed.expanded = expanded;
-                        failed.maxFrontierSeen = maxFrontierSeen;
-                        return failed;
-                    }
-                }
+            // Bomb moves go first when preferBombs is true.
+            if (preferBombs) {
+                expandBombMoves(map, limits, actionOffset, open, best, node,
+                    occupancy, reach, failed, wallScore, maxFrontierSeen);
+                maxFrontierSeen = Math.max(maxFrontierSeen, failed.maxFrontierSeen);
+                if (failed.frontierLimitHit || failed.message.startsWith("达到")) return failed;
             }
 
-            if (map.allowBombPush) {
-                for (int bombIndex = 0; bombIndex < node.bombs.length; bombIndex++) {
-                    Cell bomb = node.bombs[bombIndex];
-                    if (bomb == null) continue;
-                    for (int[] dir : DIRS) {
-                        int dr = dir[0];
-                        int dc = dir[1];
-                        char pushHeading = (char) dir[2];
-                        Cell stance = new Cell(bomb.row - dr, bomb.col - dc);
-                        if (!reach.canReach(stance, pushHeading)) continue;
+            expandBoxMoves(map, limits, actionOffset, open, best, node,
+                occupancy, reach, failed, wallScore, maxFrontierSeen);
+            maxFrontierSeen = Math.max(maxFrontierSeen, failed.maxFrontierSeen);
+            if (failed.frontierLimitHit || failed.message.startsWith("达到")) return failed;
 
-                        Cell target = new Cell(bomb.row + dr, bomb.col + dc);
-                        if (occupancy.hasBox(target) || occupancy.hasBomb(target)) continue;
-
-                        Cell[] nextBombs = copyCells(node.bombs);
-                        int[] nextDestroyed = node.destroyedWalls;
-                        String action;
-                        if (isWallDynamic(map, target.row, target.col, node.destroyedWalls)) {
-                            int[] destroyedByExplosion = explosionCells(map, target.row, target.col, node.destroyedWalls);
-                            if (destroyedByExplosion.length == 0) continue;
-                            nextBombs[bombIndex] = null;
-                            nextDestroyed = mergeDestroyedWalls(node.destroyedWalls, destroyedByExplosion);
-                            action = "X" + (char) dir[2];
-                        } else {
-                            if (!isBombMoveTowardWall(map, bomb, target, node.destroyedWalls)) continue;
-                            nextBombs[bombIndex] = target;
-                            action = "x" + (char) dir[2];
-                        }
-
-                        TransitionResult transition = appendTransition(
-                            map,
-                            limits,
-                            actionOffset,
-                            open,
-                            best,
-                            node,
-                            node.boxes,
-                            nextBombs,
-                            nextDestroyed,
-                            bomb,
-                            pushHeading,
-                            reach,
-                            stance,
-                            action
-                        );
-                        maxFrontierSeen = Math.max(maxFrontierSeen, transition.maxFrontierSeen);
-                        failed.prunedByActionLimit += transition.prunedByActionLimit;
-                        failed.prunedByBestCost += transition.prunedByBestCost;
-                        failed.prunedByFrontierTrim += transition.prunedByFrontierTrim;
-                        if (transition.frontierLimitHit) {
-                            failed.message = "达到 frontier 大小限制 " + limits.maxFrontier;
-                            failed.frontierLimitHit = true;
-                            failed.expanded = expanded;
-                            failed.maxFrontierSeen = maxFrontierSeen;
-                            return failed;
-                        }
-                    }
-                }
+            // Box moves go first when preferBombs is false (normal order).
+            if (!preferBombs) {
+                expandBombMoves(map, limits, actionOffset, open, best, node,
+                    occupancy, reach, failed, wallScore, maxFrontierSeen);
+                maxFrontierSeen = Math.max(maxFrontierSeen, failed.maxFrontierSeen);
+                if (failed.frontierLimitHit || failed.message.startsWith("达到")) return failed;
             }
         }
+
         if (failed.prunedByActionLimit > 0) {
             failed.message = "搜索队列为空，所有候选状态均因动作数限制 (maxActions=" + limits.maxActions + ") 被剪枝";
         } else {
@@ -301,29 +222,274 @@ public final class NativePlanner {
         return failed;
     }
 
-    private TransitionResult appendTransition(
-        GridMap map,
-        PerformanceLimits limits,
-        int actionOffset,
-        PriorityQueue<Node> open,
-        HashMap<String, Integer> best,
-        Node node,
-        Cell[] nextBoxes,
-        Cell[] nextBombs,
-        int[] nextDestroyedWalls,
-        Cell nextPlayer,
-        char nextHeading,
-        Reachability reach,
-        Cell stance,
-        String pushAction
+    // ------------------------------------------------------------------
+    // Box move expansion: enumerate all valid box pushes for the current node.
+    // ------------------------------------------------------------------
+    private void expandBoxMoves(
+        GridMap map, PerformanceLimits limits, int actionOffset,
+        PriorityQueue<Node> open, HashMap<String, Integer> best,
+        Node node, Occupancy occupancy, Reachability reach,
+        SearchResult failed, int[] wallScore, int maxFrontierSeen
+    ) {
+        for (int boxIndex = 0; boxIndex < node.boxes.length; boxIndex++) {
+            Cell box = node.boxes[boxIndex];
+            if (box == null) continue;
+            for (int[] dir : DIRS) {
+                int dr = dir[0];
+                int dc = dir[1];
+                char pushHeading = (char) dir[2];
+                Cell stance = new Cell(box.row - dr, box.col - dc);
+                if (!reach.canReach(stance, pushHeading)) continue;
+
+                Cell pushed = new Cell(box.row + dr, box.col + dc);
+                if (isWallDynamic(map, pushed.row, pushed.col, node.destroyedWalls)
+                    || occupancy.hasBox(pushed) || occupancy.hasBomb(pushed)) continue;
+
+                Cell[] nextBoxes = copyCells(node.boxes);
+                boolean delivered = pushed.equals(map.goals[boxIndex + 1]);
+                nextBoxes[boxIndex] = delivered ? null : pushed;
+                if (!delivered && isDeadlock(map, pushed, boxIndex + 1, nextBoxes, node.destroyedWalls)) {
+                    failed.prunedByDeadlock++;
+                    continue;
+                }
+
+                TransitionResult transition = appendBoxTransition(
+                    map, limits, actionOffset, open, best, node,
+                    nextBoxes, node.bombs, node.destroyedWalls,
+                    box, pushHeading, reach, stance,
+                    Character.toString(pushHeading), 0
+                );
+                maxFrontierSeen = Math.max(maxFrontierSeen, transition.maxFrontierSeen);
+                failed.prunedByActionLimit += transition.prunedByActionLimit;
+                failed.prunedByBestCost += transition.prunedByBestCost;
+                failed.prunedByFrontierTrim += transition.prunedByFrontierTrim;
+                if (transition.frontierLimitHit) {
+                    failed.message = "达到 frontier 大小限制 " + limits.maxFrontier;
+                    failed.frontierLimitHit = true;
+                    failed.maxFrontierSeen = maxFrontierSeen;
+                    return;
+                }
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Bomb move expansion: enumerate all valid bomb pushes / explosions.
+    // Includes bomb relevance scoring and depth-since-explosion pruning.
+    // ------------------------------------------------------------------
+    private void expandBombMoves(
+        GridMap map, PerformanceLimits limits, int actionOffset,
+        PriorityQueue<Node> open, HashMap<String, Integer> best,
+        Node node, Occupancy occupancy, Reachability reach,
+        SearchResult failed, int[] wallScore, int maxFrontierSeen
+    ) {
+        if (!map.allowBombPush) return;
+
+        // Depth-since-explosion guard: in non-strict mode, if the node has
+        // accumulated too many consecutive bomb moves without any new wall
+        // destruction, prune it. This prevents the search from spiralling
+        // through infinite bomb shuffles. strict mode ignores this.
+        if (!limits.strictShortest && limits.bombMoveDepthLimit > 0
+            && node.bombDepthSinceExplosion >= limits.bombMoveDepthLimit) {
+            failed.bombDepthPruned++;
+            return;
+        }
+
+        for (int bombIndex = 0; bombIndex < node.bombs.length; bombIndex++) {
+            Cell bomb = node.bombs[bombIndex];
+            if (bomb == null) continue;
+            for (int[] dir : DIRS) {
+                int dr = dir[0];
+                int dc = dir[1];
+                char pushHeading = (char) dir[2];
+                Cell stance = new Cell(bomb.row - dr, bomb.col - dc);
+                if (!reach.canReach(stance, pushHeading)) continue;
+
+                Cell target = new Cell(bomb.row + dr, bomb.col + dc);
+                if (occupancy.hasBox(target) || occupancy.hasBomb(target)) continue;
+
+                Cell[] nextBombs = copyCells(node.bombs);
+                int[] nextDestroyed = node.destroyedWalls;
+                String action;
+                int priorityBias = 0;
+                boolean isExplosion = false;
+
+                if (isWallDynamic(map, target.row, target.col, node.destroyedWalls)) {
+                    // Bomb pushes into a wall -> explosion.
+                    int[] destroyedByExplosion = explosionCells(map, target.row, target.col, node.destroyedWalls);
+                    if (destroyedByExplosion.length == 0) continue;
+                    nextBombs[bombIndex] = null;
+                    nextDestroyed = mergeDestroyedWalls(node.destroyedWalls, destroyedByExplosion);
+                    action = "X" + (char) dir[2];
+                    isExplosion = true;
+                    failed.bombExplosionsGenerated++;
+                    // Explosions always get a strong negative bias in non-strict mode.
+                    if (limits.bombPriorityBias && !limits.strictShortest) {
+                        priorityBias = -20;
+                    }
+                } else {
+                    // Bomb pushes into empty cell -> must move toward a relevant wall.
+                    // In non-strict mode, score the target wall's relevance and
+                    // only allow the move if the wall is useful. In strict mode
+                    // the move is always allowed (no pruning).
+                    int targetScore = bombRelevanceScore(map, target, node.boxes, nextDestroyed, wallScore);
+                    if (!limits.strictShortest && limits.bombPriorityBias) {
+                        // Non-strict: prune moves that don't approach any useful wall.
+                        if (targetScore <= 0) {
+                            failed.bombRelevantWallPruned++;
+                            continue;
+                        }
+                        // Bias scales with relevance: more useful wall = stronger pull.
+                        priorityBias = Math.max(-8, -targetScore);
+                    } else if (limits.strictShortest) {
+                        // Strict: never prune bomb moves by relevance; only by
+                        // the existing "toward wall" check to avoid infinite loops.
+                        if (!isBombMoveTowardAnyWall(map, target, nextDestroyed)) {
+                            continue;
+                        }
+                    } else {
+                        // Other non-strict modes without priority bias: original check.
+                        if (!isBombMoveTowardWall(map, bomb, target, nextDestroyed)) continue;
+                    }
+                    nextBombs[bombIndex] = target;
+                    action = "x" + (char) dir[2];
+                    failed.bombMovesGenerated++;
+                }
+
+                TransitionResult transition = appendBombTransition(
+                    map, limits, actionOffset, open, best, node,
+                    node.boxes, nextBombs, nextDestroyed,
+                    bomb, pushHeading, reach, stance,
+                    action, priorityBias, isExplosion, node.bombDepthSinceExplosion
+                );
+                maxFrontierSeen = Math.max(maxFrontierSeen, transition.maxFrontierSeen);
+                failed.prunedByActionLimit += transition.prunedByActionLimit;
+                failed.prunedByBestCost += transition.prunedByBestCost;
+                failed.prunedByFrontierTrim += transition.prunedByFrontierTrim;
+                if (transition.frontierLimitHit) {
+                    failed.message = "达到 frontier 大小限制 " + limits.maxFrontier;
+                    failed.frontierLimitHit = true;
+                    failed.maxFrontierSeen = maxFrontierSeen;
+                    return;
+                }
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Wall relevance scoring for bomb moves.
+    // ------------------------------------------------------------------
+
+    /** Precompute a relevance score for every destructible wall cell. */
+    private int[] precomputeWallScores(GridMap map, Cell[] boxes) {
+        int[] scores = new int[GridMap.CELLS];
+        // Score = number of boxes whose path to goal is blocked by this wall.
+        for (int i = 0; i < boxes.length; i++) {
+            Cell box = boxes[i];
+            if (box == null) continue;
+            Cell goal = map.goals[i + 1];
+            if (goal == null) continue;
+            int dr = Integer.signum(goal.row - box.row);
+            int dc = Integer.signum(goal.col - box.col);
+            // Mark walls in the bounding box between box and goal.
+            int r0 = Math.min(box.row, goal.row);
+            int r1 = Math.max(box.row, goal.row);
+            int c0 = Math.min(box.col, goal.col);
+            int c1 = Math.max(box.col, goal.col);
+            for (int r = r0; r <= r1; r++) {
+                for (int c = c0; c <= c1; c++) {
+                    if (map.token(r, c) == '#' && !isBoundaryWall(r, c)) {
+                        scores[r * GridMap.COLS + c] += 2;
+                    }
+                }
+            }
+        }
+        // Also boost walls near the player start (通道 opens).
+        for (int r = 1; r < GridMap.ROWS - 1; r++) {
+            for (int c = 1; c < GridMap.COLS - 1; c++) {
+                if (map.token(r, c) == '#' && !isBoundaryWall(r, c)) {
+                    // Count open neighbors (non-wall) as a通道 bonus.
+                    int openNeighbors = 0;
+                    for (int[] d : DIRS) {
+                        int nr = r + d[0], nc = c + d[1];
+                        if (inside(nr, nc) && map.token(nr, nc) != '#') openNeighbors++;
+                    }
+                    if (openNeighbors >= 2) scores[r * GridMap.COLS + c] += 1;
+                }
+            }
+        }
+        return scores;
+    }
+
+    /**
+     * Score a bomb target cell: sum of relevance scores of walls that would be
+     * destroyed if the bomb were later pushed into an adjacent wall from this
+     * position. Higher = more useful bomb placement.
+     */
+    private int bombRelevanceScore(GridMap map, Cell bombTarget, Cell[] boxes, int[] destroyedWalls, int[] wallScore) {
+        int score = 0;
+        // Check walls in the 3x3 area centered on bombTarget.
+        for (int r = bombTarget.row - 1; r <= bombTarget.row + 1; r++) {
+            for (int c = bombTarget.col - 1; c <= bombTarget.col + 1; c++) {
+                if (!inside(r, c) || isBoundaryWall(r, c)) continue;
+                int idx = r * GridMap.COLS + c;
+                if (map.token(r, c) == '#' && Arrays.binarySearch(destroyedWalls, idx) < 0) {
+                    score += wallScore[idx];
+                }
+            }
+        }
+        return score;
+    }
+
+    /** Check if the bomb is moving closer to ANY destructible wall. */
+    private boolean isBombMoveTowardAnyWall(GridMap map, Cell to, int[] destroyedWalls) {
+        int after = nearestDestructibleWallDistance(map, to, destroyedWalls);
+        return after < 9999;
+    }
+
+    // ------------------------------------------------------------------
+    // Transition appenders with optional bomb priority bias.
+    // ------------------------------------------------------------------
+
+    /** Append a box push transition (no priority bias). */
+    private TransitionResult appendBoxTransition(
+        GridMap map, PerformanceLimits limits, int actionOffset,
+        PriorityQueue<Node> open, HashMap<String, Integer> best,
+        Node node, Cell[] nextBoxes, Cell[] nextBombs, int[] nextDestroyedWalls,
+        Cell nextPlayer, char nextHeading, Reachability reach, Cell stance,
+        String pushAction, int priorityBias
+    ) {
+        return appendTransitionCore(map, limits, actionOffset, open, best, node,
+            nextBoxes, nextBombs, nextDestroyedWalls, nextPlayer, nextHeading,
+            reach, stance, pushAction, priorityBias, node.bombDepthSinceExplosion);
+    }
+
+    /** Append a bomb move/explosion transition with priority bias and depth tracking. */
+    private TransitionResult appendBombTransition(
+        GridMap map, PerformanceLimits limits, int actionOffset,
+        PriorityQueue<Node> open, HashMap<String, Integer> best,
+        Node node, Cell[] nextBoxes, Cell[] nextBombs, int[] nextDestroyedWalls,
+        Cell nextPlayer, char nextHeading, Reachability reach, Cell stance,
+        String pushAction, int priorityBias, boolean isExplosion, int prevBombDepth
+    ) {
+        int newBombDepth = isExplosion ? 0 : prevBombDepth + 1;
+        return appendTransitionCore(map, limits, actionOffset, open, best, node,
+            nextBoxes, nextBombs, nextDestroyedWalls, nextPlayer, nextHeading,
+            reach, stance, pushAction, priorityBias, newBombDepth);
+    }
+
+    /** Core transition append logic shared by box and bomb moves. */
+    private TransitionResult appendTransitionCore(
+        GridMap map, PerformanceLimits limits, int actionOffset,
+        PriorityQueue<Node> open, HashMap<String, Integer> best,
+        Node node, Cell[] nextBoxes, Cell[] nextBombs, int[] nextDestroyedWalls,
+        Cell nextPlayer, char nextHeading, Reachability reach, Cell stance,
+        String pushAction, int priorityBias, int bombDepthSinceExplosion
     ) {
         ArrayList<String> walkActions = reach.actionsTo(stance, nextHeading);
         int nextCost = node.g + walkActions.size() + 1;
         TransitionResult result = new TransitionResult(open.size());
 
-        // Action limit enforcement during search: only reject when the mode
-        // explicitly enforces it. strictShortest never enforces this, so a
-        // valid long plan is never silently dropped.
         if (limits.enforceActionLimitDuringSearch && actionOffset + nextCost > limits.maxActions) {
             result.prunedByActionLimit = 1;
             return result;
@@ -344,11 +510,17 @@ public final class NativePlanner {
         path.addAll(reach.pathTo(stance, nextHeading));
         path.add(nextPlayer);
 
-        int f = priority(map, limits, nextCost, nextPlayer, nextBoxes, nextBombs, nextDestroyedWalls);
-        open.add(new Node(nextPlayer, nextHeading, copyCells(nextBoxes), copyCells(nextBombs), nextDestroyedWalls, nextCost, f, actions, path));
+        int f = priority(map, limits, nextCost, nextPlayer, nextBoxes, nextBombs, nextDestroyedWalls, null);
+        // Apply bomb priority bias: only in non-strict modes, this shifts the
+        // f-value downward so bomb states are explored before equivalent box
+        // states. The bias does NOT affect g-cost or the final solution cost,
+        // only the exploration order. strictShortest never uses this.
+        if (priorityBias != 0 && limits.bombPriorityBias && !limits.strictShortest) {
+            f += priorityBias;
+        }
+        open.add(new Node(nextPlayer, nextHeading, copyCells(nextBoxes), copyCells(nextBombs),
+            nextDestroyedWalls, nextCost, f, actions, path, bombDepthSinceExplosion));
 
-        // Frontier trimming enforcement: only trim when the mode asks for it.
-        // strictShortest never trims, so the full frontier is preserved.
         if (limits.enforceFrontierLimitDuringSearch && limits.trimFrontier) {
             int before = open.size();
             trimFrontier(open, limits.maxFrontier);
@@ -360,6 +532,10 @@ public final class NativePlanner {
             && open.size() > limits.maxFrontier;
         return result;
     }
+
+    // ------------------------------------------------------------------
+    // Recognition (unchanged from previous version).
+    // ------------------------------------------------------------------
 
     private RecognitionPlan planRecognition(GridMap map) {
         ArrayList<RecognitionObject> objects = new ArrayList<>();
@@ -406,14 +582,8 @@ public final class NativePlanner {
         return failed;
     }
 
-    private void buildRecognitionTables(
-        GridMap map,
-        ArrayList<RecognitionObject> objects,
-        int[] frontMask,
-        int[] leftPose,
-        int[] rightPose,
-        int[] forwardPose
-    ) {
+    private void buildRecognitionTables(GridMap map, ArrayList<RecognitionObject> objects,
+        int[] frontMask, int[] leftPose, int[] rightPose, int[] forwardPose) {
         Arrays.fill(forwardPose, -1);
         for (int cell = 0; cell < GridMap.CELLS; cell++) {
             Cell pos = new Cell(cell / GridMap.COLS, cell % GridMap.COLS);
@@ -433,23 +603,13 @@ public final class NativePlanner {
     private int objectMask(Cell front, ArrayList<RecognitionObject> objects) {
         int mask = 0;
         for (int i = 0; i < objects.size(); i++) {
-            RecognitionObject obj = objects.get(i);
-            if (front.equals(obj.pos)) mask |= 1 << i;
+            if (front.equals(objects.get(i).pos)) mask |= 1 << i;
         }
         return mask;
     }
 
-    private void addRecognitionTransition(
-        ArrayDeque<Integer> queue,
-        int[] parent,
-        byte[] action,
-        int[] frontMask,
-        int poseCount,
-        int mask,
-        int state,
-        int nextPose,
-        byte actionKind
-    ) {
+    private void addRecognitionTransition(ArrayDeque<Integer> queue, int[] parent, byte[] action,
+        int[] frontMask, int poseCount, int mask, int state, int nextPose, byte actionKind) {
         if (nextPose < 0) return;
         int nextMask = mask | frontMask[nextPose];
         int nextState = nextMask * poseCount + nextPose;
@@ -459,13 +619,8 @@ public final class NativePlanner {
         queue.add(nextState);
     }
 
-    private RecognitionPlan reconstructRecognitionPlan(
-        int goalState,
-        int poseCount,
-        int[] parent,
-        byte[] action,
-        ArrayList<RecognitionObject> objects
-    ) {
+    private RecognitionPlan reconstructRecognitionPlan(int goalState, int poseCount,
+        int[] parent, byte[] action, ArrayList<RecognitionObject> objects) {
         ArrayList<Integer> reversedPoses = new ArrayList<>();
         ArrayList<String> reversedActions = new ArrayList<>();
         int current = goalState;
@@ -474,13 +629,11 @@ public final class NativePlanner {
             if (action[current] != 0) reversedActions.add(actionName(action[current]));
             current = parent[current];
         }
-
         RecognitionPlan plan = new RecognitionPlan();
         plan.ok = true;
         for (int i = reversedPoses.size() - 1; i >= 0; i--) {
-            int pose = reversedPoses.get(i);
-            plan.path.add(poseCell(pose));
-            plan.headings.add(poseHeading(pose));
+            plan.path.add(poseCell(reversedPoses.get(i)));
+            plan.headings.add(poseHeading(reversedPoses.get(i)));
         }
         for (int i = reversedActions.size() - 1; i >= 0; i--) plan.actions.add(reversedActions.get(i));
         plan.order = recognitionOrder(plan.path, plan.headings, objects);
@@ -502,20 +655,23 @@ public final class NativePlanner {
             Cell front = new Cell(pos.row + dirDr(heading), pos.col + dirDc(heading));
             for (int i = 0; i < objects.size(); i++) {
                 if (seen[i]) continue;
-                RecognitionObject obj = objects.get(i);
-                if (front.equals(obj.pos)) {
+                if (front.equals(objects.get(i).pos)) {
                     seen[i] = true;
-                    order.add(obj.label);
+                    order.add(objects.get(i).label);
                 }
             }
         }
         return order;
     }
 
-    private Reachability computeReachability(GridMap map, Node node, Occupancy occupancy, boolean preferBombs) {
+    // ------------------------------------------------------------------
+    // Reachability BFS (no preferBombs parameter -- always mark all targets).
+    // ------------------------------------------------------------------
+
+    private Reachability computeReachability(GridMap map, Node node, Occupancy occupancy) {
         ReachWorkspace ws = reachWorkspace;
         ws.nextSearch();
-        int remainingTargets = markTargetPoses(map, node, occupancy, ws, preferBombs);
+        int remainingTargets = markTargetPoses(map, node, occupancy, ws);
         int head = 0;
         int startPose = poseIndex(node.player, node.heading);
         ws.seenStamp[startPose] = ws.searchGeneration;
@@ -530,38 +686,23 @@ public final class NativePlanner {
             int row = currentCell / GridMap.COLS;
             int col = currentCell % GridMap.COLS;
 
-            if (addPoseTransition(ws, currentPose, currentCell, LEFT_HEADING_INDEX[headingIndex], (byte) 1)) {
-                remainingTargets--;
-            }
-            if (addPoseTransition(ws, currentPose, currentCell, RIGHT_HEADING_INDEX[headingIndex], (byte) 2)) {
-                remainingTargets--;
-            }
+            if (addPoseTransition(ws, currentPose, currentCell, LEFT_HEADING_INDEX[headingIndex], (byte) 1)) remainingTargets--;
+            if (addPoseTransition(ws, currentPose, currentCell, RIGHT_HEADING_INDEX[headingIndex], (byte) 2)) remainingTargets--;
 
             int nr = row + DIRS[headingIndex][0];
             int nc = col + DIRS[headingIndex][1];
             if (inside(nr, nc)) {
                 int nextCell = nr * GridMap.COLS + nc;
-                if (
-                    !isWallDynamic(map, nr, nc, node.destroyedWalls)
-                        && occupancy.boxAt[nextCell] < 0
-                        && occupancy.bombAt[nextCell] < 0
-                ) {
-                    if (addPoseTransition(ws, currentPose, nextCell, headingIndex, (byte) 3)) {
-                        remainingTargets--;
-                    }
+                if (!isWallDynamic(map, nr, nc, node.destroyedWalls)
+                    && occupancy.boxAt[nextCell] < 0 && occupancy.bombAt[nextCell] < 0) {
+                    if (addPoseTransition(ws, currentPose, nextCell, headingIndex, (byte) 3)) remainingTargets--;
                 }
             }
         }
         return new Reachability(startPose, ws.searchGeneration, ws.seenStamp, ws.prev, ws.action);
     }
 
-    private boolean addPoseTransition(
-        ReachWorkspace ws,
-        int currentPose,
-        int nextCell,
-        int nextHeadingIndex,
-        byte actionKind
-    ) {
+    private boolean addPoseTransition(ReachWorkspace ws, int currentPose, int nextCell, int nextHeadingIndex, byte actionKind) {
         int nextPose = nextCell * 4 + nextHeadingIndex;
         if (ws.seenStamp[nextPose] == ws.searchGeneration) return false;
         ws.seenStamp[nextPose] = ws.searchGeneration;
@@ -571,16 +712,8 @@ public final class NativePlanner {
         return ws.targetStamp[nextPose] == ws.targetGeneration;
     }
 
-    private int markTargetPoses(
-        GridMap map,
-        Node node,
-        Occupancy occupancy,
-        ReachWorkspace ws,
-        boolean preferBombs
-    ) {
+    private int markTargetPoses(GridMap map, Node node, Occupancy occupancy, ReachWorkspace ws) {
         int count = 0;
-        // Always mark box targets -- even when preferBombs is true we still
-        // need them for the BFS to know which poses are interesting.
         for (Cell box : node.boxes) count += markMovableTargets(map, node, occupancy, ws, box);
         if (map.allowBombPush) {
             for (Cell bomb : node.bombs) count += markMovableTargets(map, node, occupancy, ws, bomb);
@@ -588,13 +721,7 @@ public final class NativePlanner {
         return count;
     }
 
-    private int markMovableTargets(
-        GridMap map,
-        Node node,
-        Occupancy occupancy,
-        ReachWorkspace ws,
-        Cell movable
-    ) {
+    private int markMovableTargets(GridMap map, Node node, Occupancy occupancy, ReachWorkspace ws, Cell movable) {
         if (movable == null) return 0;
         int count = 0;
         for (int[] dir : DIRS) {
@@ -613,6 +740,10 @@ public final class NativePlanner {
         return count;
     }
 
+    // ------------------------------------------------------------------
+    // Heuristic and priority.
+    // ------------------------------------------------------------------
+
     private Cell[] orderedBoxes(GridMap map) {
         Cell[] out = new Cell[map.boxCount];
         for (int id = 1; id <= map.boxCount; id++) out[id - 1] = map.boxes[id];
@@ -625,18 +756,20 @@ public final class NativePlanner {
         return out;
     }
 
-    private int heuristic(GridMap map, Cell player, Cell[] boxes, Cell[] bombs, int[] destroyedWalls) {
+    private int heuristic(GridMap map, Cell player, Cell[] boxes, Cell[] bombs, int[] destroyedWalls, int[] wallScore) {
         if (allBoxesDelivered(boxes)) return 0;
 
         int value = 0;
-        int[][] pushDistances = (!map.allowBombPush || !hasLiveBomb(bombs))
-            ? pushDistances(map, destroyedWalls)
-            : null;
+        // Use reverse push distances when no live bomb can change walls,
+        // otherwise fall back to Manhattan distance (admissible with dynamic walls).
+        boolean usePushDist = (!map.allowBombPush || !hasLiveBomb(bombs));
+        int[][] pushDist = usePushDist ? pushDistances(map, destroyedWalls) : null;
+
         for (int i = 0; i < boxes.length; i++) {
             Cell goal = map.goals[i + 1];
             if (boxes[i] != null && goal != null) {
                 int dist = -1;
-                if (pushDistances != null && i < pushDistances.length) dist = pushDistances[i][boxes[i].index()];
+                if (pushDist != null && i < pushDist.length) dist = pushDist[i][boxes[i].index()];
                 if (dist >= 0) {
                     value += dist;
                 } else {
@@ -648,16 +781,9 @@ public final class NativePlanner {
         return value;
     }
 
-    private int priority(
-        GridMap map,
-        PerformanceLimits limits,
-        int cost,
-        Cell player,
-        Cell[] boxes,
-        Cell[] bombs,
-        int[] destroyedWalls
-    ) {
-        return cost + heuristic(map, player, boxes, bombs, destroyedWalls) * Math.max(1, limits.heuristicWeight);
+    private int priority(GridMap map, PerformanceLimits limits, int cost,
+        Cell player, Cell[] boxes, Cell[] bombs, int[] destroyedWalls, int[] wallScore) {
+        return cost + heuristic(map, player, boxes, bombs, destroyedWalls, wallScore) * Math.max(1, limits.heuristicWeight);
     }
 
     private int nextStanceLowerBound(Cell player, Cell[] boxes, Cell[] bombs) {
@@ -680,9 +806,7 @@ public final class NativePlanner {
     }
 
     private boolean allBoxesDelivered(Cell[] boxes) {
-        for (Cell box : boxes) {
-            if (box != null) return false;
-        }
+        for (Cell box : boxes) if (box != null) return false;
         return true;
     }
 
@@ -690,7 +814,6 @@ public final class NativePlanner {
         String key = destroyedWallsKey(destroyedWalls);
         int[][] cached = pushDistanceCache.get(key);
         if (cached != null) return cached;
-
         int[][] distances = new int[Math.max(0, map.boxCount)][GridMap.CELLS];
         for (int i = 0; i < distances.length; i++) {
             Arrays.fill(distances[i], -1);
@@ -718,30 +841,25 @@ public final class NativePlanner {
             int col = cell % GridMap.COLS;
             int nextDistance = dist[cell] + 1;
             for (int[] dir : DIRS) {
-                int previousRow = row - dir[0];
-                int previousCol = col - dir[1];
-                int stanceRow = previousRow - dir[0];
-                int stanceCol = previousCol - dir[1];
-                if (
-                    !inside(previousRow, previousCol)
-                        || !inside(stanceRow, stanceCol)
-                        || isWallDynamic(map, previousRow, previousCol, destroyedWalls)
-                        || isWallDynamic(map, stanceRow, stanceCol, destroyedWalls)
-                ) {
-                    continue;
-                }
-                int previous = previousRow * GridMap.COLS + previousCol;
-                if (dist[previous] >= 0) continue;
-                dist[previous] = nextDistance;
-                queue.add(previous);
+                int pr = row - dir[0], pc = col - dir[1];
+                int sr = pr - dir[0], sc = pc - dir[1];
+                if (!inside(pr, pc) || !inside(sr, sc)
+                    || isWallDynamic(map, pr, pc, destroyedWalls)
+                    || isWallDynamic(map, sr, sc, destroyedWalls)) continue;
+                int prev = pr * GridMap.COLS + pc;
+                if (dist[prev] >= 0) continue;
+                dist[prev] = nextDistance;
+                queue.add(prev);
             }
         }
     }
 
+    // ------------------------------------------------------------------
+    // Utilities.
+    // ------------------------------------------------------------------
+
     private static int compareNodes(Node a, Node b) {
         if (a.f != b.f) return Integer.compare(a.f, b.f);
-        // Deeper nodes usually have fewer remaining pushes when f ties, which keeps
-        // the bounded STM32 frontier focused instead of filling with walking variants.
         return Integer.compare(b.g, a.g);
     }
 
@@ -753,14 +871,11 @@ public final class NativePlanner {
         for (int i = 0; i < maxFrontier && i < nodes.size(); i++) open.add(nodes.get(i));
     }
 
-    private boolean isGoal(GridMap map, Cell[] boxes) {
-        return allBoxesDelivered(boxes);
-    }
+    private boolean isGoal(GridMap map, Cell[] boxes) { return allBoxesDelivered(boxes); }
 
     private boolean isDeadlock(GridMap map, Cell pos, int boxId, Cell[] boxes, int[] destroyedWalls) {
         Cell goal = map.goals[boxId];
         if (goal != null && goal.equals(pos)) return false;
-
         boolean up = isWallDynamic(map, pos.row - 1, pos.col, destroyedWalls);
         boolean down = isWallDynamic(map, pos.row + 1, pos.col, destroyedWalls);
         boolean left = isWallDynamic(map, pos.row, pos.col - 1, destroyedWalls);
@@ -770,15 +885,10 @@ public final class NativePlanner {
         int boxPosIndex = pos.index();
         for (int top = pos.row - 1; top <= pos.row; top++) {
             for (int lft = pos.col - 1; lft <= pos.col; lft++) {
-                boolean containsBox = false;
-                boolean containsGoal = false;
-                boolean blocked = true;
+                boolean containsBox = false, containsGoal = false, blocked = true;
                 for (int r = top; r <= top + 1; r++) {
                     for (int c = lft; c <= lft + 1; c++) {
-                        if (!inside(r, c)) {
-                            blocked = false;
-                            continue;
-                        }
+                        if (!inside(r, c)) { blocked = false; continue; }
                         int idx = r * GridMap.COLS + c;
                         if (idx == boxPosIndex) containsBox = true;
                         for (int id = 1; id <= map.boxCount; id++) {
@@ -795,37 +905,27 @@ public final class NativePlanner {
     }
 
     private boolean hasBoxAtIndex(Cell[] boxes, int index) {
-        for (Cell box : boxes) {
-            if (box != null && box.index() == index) return true;
-        }
+        for (Cell box : boxes) if (box != null && box.index() == index) return true;
         return false;
     }
 
     private boolean objectOccupied(GridMap map, Cell pos) {
         int idx = pos.index();
-        for (int id = 1; id <= map.boxCount; id++) {
+        for (int id = 1; id <= map.boxCount; id++)
             if (map.boxes[id] != null && map.boxes[id].index() == idx) return true;
-        }
-        for (int i = 0; i < map.bombCount; i++) {
+        for (int i = 0; i < map.bombCount; i++)
             if (map.bombs[i] != null && map.bombs[i].index() == idx) return true;
-        }
         return false;
     }
 
     private Occupancy buildOccupancy(Cell[] boxes, Cell[] bombs) {
         Occupancy occupancy = new Occupancy();
-        for (int i = 0; i < boxes.length; i++) {
-            if (boxes[i] != null) occupancy.boxAt[boxes[i].index()] = i;
-        }
-        for (int i = 0; i < bombs.length; i++) {
-            if (bombs[i] != null) occupancy.bombAt[bombs[i].index()] = i;
-        }
+        for (int i = 0; i < boxes.length; i++) if (boxes[i] != null) occupancy.boxAt[boxes[i].index()] = i;
+        for (int i = 0; i < bombs.length; i++) if (bombs[i] != null) occupancy.bombAt[bombs[i].index()] = i;
         return occupancy;
     }
 
-    private Cell[] copyCells(Cell[] cells) {
-        return Arrays.copyOf(cells, cells.length);
-    }
+    private Cell[] copyCells(Cell[] cells) { return Arrays.copyOf(cells, cells.length); }
 
     private boolean hasLiveBomb(Cell[] bombs) {
         for (Cell bomb : bombs) if (bomb != null) return true;
@@ -855,63 +955,33 @@ public final class NativePlanner {
         return count;
     }
 
-    private static int headingIndex(char heading) {
-        char h = Character.toUpperCase(heading);
-        if (h == 'L') return 0;
-        if (h == 'U') return 1;
-        if (h == 'D') return 2;
-        return 3;
+    private static int headingIndex(char h) {
+        h = Character.toUpperCase(h);
+        if (h == 'L') return 0; if (h == 'U') return 1; if (h == 'D') return 2; return 3;
+    }
+    private static char leftHeading(char h) {
+        h = Character.toUpperCase(h);
+        if (h == 'U') return 'L'; if (h == 'L') return 'D'; if (h == 'D') return 'R'; return 'U';
+    }
+    private static char rightHeading(char h) {
+        h = Character.toUpperCase(h);
+        if (h == 'U') return 'R'; if (h == 'R') return 'D'; if (h == 'D') return 'L'; return 'U';
+    }
+    private static int dirDr(char h) { return DIRS[headingIndex(h)][0]; }
+    private static int dirDc(char h) { return DIRS[headingIndex(h)][1]; }
+    private static int poseIndex(Cell cell, char h) { return cell.index() * 4 + headingIndex(h); }
+    private static Cell poseCell(int pi) { int c = pi / 4; return new Cell(c / GridMap.COLS, c % GridMap.COLS); }
+    private static char poseHeading(int pi) { return HEADINGS[pi & 3]; }
+    private boolean inside(int r, int c) { return r >= 0 && c >= 0 && r < GridMap.ROWS && c < GridMap.COLS; }
+
+    private boolean isWallDynamic(GridMap map, int r, int c, int[] destroyedWalls) {
+        if (r < 0 || c < 0 || r >= GridMap.ROWS || c >= GridMap.COLS) return true;
+        if (map.token(r, c) != '#') return false;
+        return Arrays.binarySearch(destroyedWalls, r * GridMap.COLS + c) < 0;
     }
 
-    private static char leftHeading(char heading) {
-        char h = Character.toUpperCase(heading);
-        if (h == 'U') return 'L';
-        if (h == 'L') return 'D';
-        if (h == 'D') return 'R';
-        return 'U';
-    }
-
-    private static char rightHeading(char heading) {
-        char h = Character.toUpperCase(heading);
-        if (h == 'U') return 'R';
-        if (h == 'R') return 'D';
-        if (h == 'D') return 'L';
-        return 'U';
-    }
-
-    private static int dirDr(char heading) {
-        return DIRS[headingIndex(heading)][0];
-    }
-
-    private static int dirDc(char heading) {
-        return DIRS[headingIndex(heading)][1];
-    }
-
-    private static int poseIndex(Cell cell, char heading) {
-        return cell.index() * 4 + headingIndex(heading);
-    }
-
-    private static Cell poseCell(int poseIndex) {
-        int cell = poseIndex / 4;
-        return new Cell(cell / GridMap.COLS, cell % GridMap.COLS);
-    }
-
-    private static char poseHeading(int poseIndex) {
-        return HEADINGS[poseIndex & 3];
-    }
-
-    private boolean inside(int row, int col) {
-        return row >= 0 && col >= 0 && row < GridMap.ROWS && col < GridMap.COLS;
-    }
-
-    private boolean isWallDynamic(GridMap map, int row, int col, int[] destroyedWalls) {
-        if (row < 0 || col < 0 || row >= GridMap.ROWS || col >= GridMap.COLS) return true;
-        if (map.token(row, col) != '#') return false;
-        return Arrays.binarySearch(destroyedWalls, row * GridMap.COLS + col) < 0;
-    }
-
-    private boolean isBoundaryWall(int row, int col) {
-        return row == 0 || col == 0 || row == GridMap.ROWS - 1 || col == GridMap.COLS - 1;
+    private boolean isBoundaryWall(int r, int c) {
+        return r == 0 || c == 0 || r == GridMap.ROWS - 1 || c == GridMap.COLS - 1;
     }
 
     private int[] explosionCells(GridMap map, int row, int col, int[] destroyedWalls) {
@@ -921,18 +991,15 @@ public final class NativePlanner {
             for (int c = col - 1; c <= col + 1; c++) {
                 if (!inside(r, c) || isBoundaryWall(r, c)) continue;
                 int idx = r * GridMap.COLS + c;
-                if (map.token(r, c) == '#' && Arrays.binarySearch(destroyedWalls, idx) < 0) {
-                    scratch[count++] = idx;
-                }
+                if (map.token(r, c) == '#' && Arrays.binarySearch(destroyedWalls, idx) < 0) scratch[count++] = idx;
             }
         }
         return Arrays.copyOf(scratch, count);
     }
 
     private boolean isBombMoveTowardWall(GridMap map, Cell from, Cell to, int[] destroyedWalls) {
-        int before = nearestDestructibleWallDistance(map, from, destroyedWalls);
-        int after = nearestDestructibleWallDistance(map, to, destroyedWalls);
-        return after < before;
+        return nearestDestructibleWallDistance(map, to, destroyedWalls)
+            < nearestDestructibleWallDistance(map, from, destroyedWalls);
     }
 
     private int nearestDestructibleWallDistance(GridMap map, Cell cell, int[] destroyedWalls) {
@@ -940,8 +1007,7 @@ public final class NativePlanner {
         for (int r = 1; r < GridMap.ROWS - 1; r++) {
             for (int c = 1; c < GridMap.COLS - 1; c++) {
                 if (map.token(r, c) != '#') continue;
-                int idx = r * GridMap.COLS + c;
-                if (Arrays.binarySearch(destroyedWalls, idx) >= 0) continue;
+                if (Arrays.binarySearch(destroyedWalls, r * GridMap.COLS + c) >= 0) continue;
                 int dist = Math.abs(cell.row - r) + Math.abs(cell.col - c);
                 if (dist < best) best = dist;
             }
@@ -955,11 +1021,13 @@ public final class NativePlanner {
         System.arraycopy(added, 0, merged, current.length, added.length);
         Arrays.sort(merged);
         int unique = 0;
-        for (int value : merged) {
-            if (unique == 0 || merged[unique - 1] != value) merged[unique++] = value;
-        }
+        for (int value : merged) if (unique == 0 || merged[unique - 1] != value) merged[unique++] = value;
         return Arrays.copyOf(merged, unique);
     }
+
+    // ------------------------------------------------------------------
+    // Node now carries bombDepthSinceExplosion for depth-based pruning.
+    // ------------------------------------------------------------------
 
     private static final class Node {
         final Cell player;
@@ -971,18 +1039,11 @@ public final class NativePlanner {
         final int f;
         final ArrayList<String> actions;
         final ArrayList<Cell> path;
+        final int bombDepthSinceExplosion;
 
-        Node(
-            Cell player,
-            char heading,
-            Cell[] boxes,
-            Cell[] bombs,
-            int[] destroyedWalls,
-            int g,
-            int f,
-            ArrayList<String> actions,
-            ArrayList<Cell> path
-        ) {
+        Node(Cell player, char heading, Cell[] boxes, Cell[] bombs, int[] destroyedWalls,
+             int g, int f, ArrayList<String> actions, ArrayList<Cell> path,
+             int bombDepthSinceExplosion) {
             this.player = player;
             this.heading = heading;
             this.boxes = boxes;
@@ -992,6 +1053,7 @@ public final class NativePlanner {
             this.f = f;
             this.actions = actions;
             this.path = path;
+            this.bombDepthSinceExplosion = bombDepthSinceExplosion;
         }
     }
 
@@ -1003,8 +1065,6 @@ public final class NativePlanner {
         int pushes;
         ArrayList<String> actions = new ArrayList<>();
         ArrayList<Cell> path = new ArrayList<>();
-
-        // Diagnostic counters.
         int prunedByDeadlock;
         int prunedByActionLimit;
         int prunedByBestCost;
@@ -1013,6 +1073,13 @@ public final class NativePlanner {
         boolean expandedLimitHit;
         boolean frontierLimitHit;
         boolean actionLimitHit;
+        // Bomb diagnostics.
+        int bombMovesGenerated;
+        int bombExplosionsGenerated;
+        int bombMovesPruned;
+        int bombRelevantWallPruned;
+        boolean bombPriorityUsed;
+        int bombDepthPruned;
 
         List<Cell> pathWithoutFirst() {
             if (path.size() <= 1) return new ArrayList<>();
@@ -1027,31 +1094,15 @@ public final class NativePlanner {
         int prunedByBestCost;
         int prunedByFrontierTrim;
 
-        TransitionResult(int maxFrontierSeen) {
-            this.maxFrontierSeen = maxFrontierSeen;
-        }
+        TransitionResult(int maxFrontierSeen) { this.maxFrontierSeen = maxFrontierSeen; }
     }
 
     private static final class Occupancy {
         final int[] boxAt = new int[GridMap.CELLS];
         final int[] bombAt = new int[GridMap.CELLS];
-
-        Occupancy() {
-            Arrays.fill(boxAt, -1);
-            Arrays.fill(bombAt, -1);
-        }
-
-        boolean hasBox(Cell cell) {
-            return insideCell(cell) && boxAt[cell.index()] >= 0;
-        }
-
-        boolean hasBomb(Cell cell) {
-            return insideCell(cell) && bombAt[cell.index()] >= 0;
-        }
-
-        private boolean insideCell(Cell cell) {
-            return cell.row >= 0 && cell.col >= 0 && cell.row < GridMap.ROWS && cell.col < GridMap.COLS;
-        }
+        Occupancy() { Arrays.fill(boxAt, -1); Arrays.fill(bombAt, -1); }
+        boolean hasBox(Cell c) { return c.row >= 0 && c.col >= 0 && c.row < GridMap.ROWS && c.col < GridMap.COLS && boxAt[c.index()] >= 0; }
+        boolean hasBomb(Cell c) { return c.row >= 0 && c.col >= 0 && c.row < GridMap.ROWS && c.col < GridMap.COLS && bombAt[c.index()] >= 0; }
     }
 
     private static final class ReachWorkspace {
@@ -1063,60 +1114,45 @@ public final class NativePlanner {
         int searchGeneration = 0;
         int targetGeneration = 0;
         int tail = 0;
-
         void nextSearch() {
-            searchGeneration++;
-            targetGeneration++;
-            tail = 0;
+            searchGeneration++; targetGeneration++; tail = 0;
             if (searchGeneration == Integer.MAX_VALUE || targetGeneration == Integer.MAX_VALUE) {
-                Arrays.fill(seenStamp, 0);
-                Arrays.fill(targetStamp, 0);
-                searchGeneration = 1;
-                targetGeneration = 1;
+                Arrays.fill(seenStamp, 0); Arrays.fill(targetStamp, 0);
+                searchGeneration = 1; targetGeneration = 1;
             }
         }
     }
 
     private static final class Reachability {
-        final int startPose;
-        final int generation;
-        final int[] seenStamp;
-        final int[] prev;
+        final int startPose, generation;
+        final int[] seenStamp, prev;
         final byte[] action;
-
-        Reachability(int startPose, int generation, int[] seenStamp, int[] prev, byte[] action) {
-            this.startPose = startPose;
-            this.generation = generation;
-            this.seenStamp = seenStamp;
-            this.prev = prev;
-            this.action = action;
+        Reachability(int s, int g, int[] seen, int[] prev, byte[] act) {
+            startPose = s; generation = g; seenStamp = seen; this.prev = prev; action = act;
         }
-
         boolean canReach(Cell cell, char heading) {
-            if (cell.row < 0 || cell.col < 0 || cell.row >= GridMap.ROWS || cell.col >= GridMap.COLS) return false;
-            return seenStamp[poseIndex(cell, heading)] == generation;
+            return cell.row >= 0 && cell.col >= 0 && cell.row < GridMap.ROWS && cell.col < GridMap.COLS
+                && seenStamp[poseIndex(cell, heading)] == generation;
         }
-
         ArrayList<String> actionsTo(Cell target, char heading) {
             ArrayList<String> reversed = new ArrayList<>();
-            int current = poseIndex(target, heading);
-            while (current != startPose) {
-                if (current < 0 || seenStamp[current] != generation || prev[current] < 0) return new ArrayList<>();
-                reversed.add(NativePlanner.actionName(action[current]));
-                current = prev[current];
+            int cur = poseIndex(target, heading);
+            while (cur != startPose) {
+                if (cur < 0 || seenStamp[cur] != generation || prev[cur] < 0) return new ArrayList<>();
+                reversed.add(NativePlanner.actionName(action[cur]));
+                cur = prev[cur];
             }
             ArrayList<String> out = new ArrayList<>();
             for (int i = reversed.size() - 1; i >= 0; i--) out.add(reversed.get(i));
             return out;
         }
-
         ArrayList<Cell> pathTo(Cell target, char heading) {
             ArrayList<Cell> reversed = new ArrayList<>();
-            int current = poseIndex(target, heading);
-            while (current != startPose) {
-                if (current < 0 || seenStamp[current] != generation || prev[current] < 0) return new ArrayList<>();
-                reversed.add(poseCell(current));
-                current = prev[current];
+            int cur = poseIndex(target, heading);
+            while (cur != startPose) {
+                if (cur < 0 || seenStamp[cur] != generation || prev[cur] < 0) return new ArrayList<>();
+                reversed.add(poseCell(cur));
+                cur = prev[cur];
             }
             ArrayList<Cell> out = new ArrayList<>();
             for (int i = reversed.size() - 1; i >= 0; i--) out.add(reversed.get(i));
@@ -1127,11 +1163,7 @@ public final class NativePlanner {
     private static final class RecognitionObject {
         final String label;
         final Cell pos;
-
-        RecognitionObject(String label, Cell pos) {
-            this.label = label;
-            this.pos = pos;
-        }
+        RecognitionObject(String l, Cell p) { label = l; pos = p; }
     }
 
     private static final class RecognitionPlan {
