@@ -56,11 +56,14 @@ public final class GridMap {
         Arrays.fill(bombs, null);
         boxCount = 0;
         bombCount = 0;
+        // Reset player so a map without 'P' does not retain the old position.
+        player = null;
         for (int r = 0; r < ROWS; r++) {
             for (int c = 0; c < COLS; c++) {
                 char t = token(r, c);
-                if (t == 'P') player = new Cell(r, c);
-                else if (t >= '1' && t <= '4') {
+                if (t == 'P') {
+                    player = new Cell(r, c);
+                } else if (t >= '1' && t <= '4') {
                     int id = t - '0';
                     boxes[id] = new Cell(r, c);
                     boxCount = Math.max(boxCount, id);
@@ -72,6 +75,9 @@ public final class GridMap {
                 }
             }
         }
+        // Fallback: if no P token was found, keep a default so callers don't NPE,
+        // but validate() will flag this as an error.
+        if (player == null) player = new Cell(5, 1);
     }
 
     public char token(int row, int col) {
@@ -84,6 +90,102 @@ public final class GridMap {
 
     public boolean isWall(int row, int col) {
         return row < 0 || col < 0 || row >= ROWS || col >= COLS || token(row, col) == '#';
+    }
+
+    /** Validate the map for correctness before solving. */
+    public ValidationResult validate() {
+        ValidationResult r = new ValidationResult();
+
+        // Check boundary walls.
+        for (int c = 0; c < COLS; c++) {
+            if (token(0, c) != '#') { r.ok = false; r.message = "上边界墙被擦除 (0," + c + ")"; return r; }
+            if (token(ROWS - 1, c) != '#') { r.ok = false; r.message = "下边界墙被擦除 (" + (ROWS - 1) + "," + c + ")"; return r; }
+        }
+        for (int rr = 0; rr < ROWS; rr++) {
+            if (token(rr, 0) != '#') { r.ok = false; r.message = "左边界墙被擦除 (" + rr + ",0)"; return r; }
+            if (token(rr, COLS - 1) != '#') { r.ok = false; r.message = "右边界墙被擦除 (" + rr + "," + (COLS - 1) + ")"; return r; }
+        }
+
+        // Check player count.
+        int playerCount = 0;
+        for (int i = 0; i < CELLS; i++) {
+            if (cells[i] == 'P') playerCount++;
+        }
+        if (playerCount == 0) {
+            r.ok = false;
+            r.message = "地图缺少玩家起点 P";
+            return r;
+        }
+        if (playerCount > 1) {
+            r.ok = false;
+            r.message = "地图有多个玩家起点 P (" + playerCount + " 个)，只能有 1 个";
+            return r;
+        }
+
+        // Rebuild to get current box/goal counts.
+        rebuildObjects();
+
+        // Check box/goal pairing.
+        if (boxCount == 0) {
+            r.ok = false;
+            r.message = "地图没有箱子 (B1/B2/B3/B4)";
+            return r;
+        }
+
+        // Check that every box has a matching goal and vice versa.
+        boolean hasUnmatchedBox = false;
+        boolean hasUnmatchedGoal = false;
+        int maxId = 0;
+        for (int id = 1; id <= MAX_BOXES; id++) {
+            if (boxes[id] != null) {
+                maxId = Math.max(maxId, id);
+                if (goals[id] == null) hasUnmatchedBox = true;
+            }
+        }
+        for (int id = 1; id <= MAX_BOXES; id++) {
+            if (goals[id] != null) {
+                maxId = Math.max(maxId, id);
+                if (boxes[id] == null) hasUnmatchedGoal = true;
+            }
+        }
+        if (hasUnmatchedBox && !hasUnmatchedGoal) {
+            r.ok = false;
+            r.message = "有箱子但缺少对应编号的目标 (例如有 B1 但没有 T1)";
+            return r;
+        }
+        if (hasUnmatchedGoal && !hasUnmatchedBox) {
+            r.ok = false;
+            r.message = "有目标但缺少对应编号的箱子 (例如有 T1 但没有 B1)";
+            return r;
+        }
+        if (hasUnmatchedBox && hasUnmatchedGoal) {
+            r.ok = false;
+            r.message = "箱子和目标编号不匹配";
+            return r;
+        }
+
+        // Check ID continuity: IDs must be 1..boxCount without gaps.
+        for (int id = 1; id <= boxCount; id++) {
+            if (boxes[id] == null) {
+                r.ok = false;
+                r.message = "箱子编号不连续: 缺少 B" + id;
+                return r;
+            }
+            if (goals[id] == null) {
+                r.ok = false;
+                r.message = "目标编号不连续: 缺少 T" + id;
+                return r;
+            }
+        }
+
+        // Check bomb count.
+        if (bombCount > MAX_BOMBS) {
+            r.ok = false;
+            r.message = "炸弹数量超限: " + bombCount + " > " + MAX_BOMBS;
+            return r;
+        }
+
+        return r;
     }
 
     public static GridMap template(int levelId) {
@@ -124,5 +226,10 @@ public final class GridMap {
         for (int[] range : ranges) {
             for (int c = range[1]; c <= range[2]; c++) map.setToken(range[0], c, '#');
         }
+    }
+
+    public static final class ValidationResult {
+        public boolean ok = true;
+        public String message = "";
     }
 }

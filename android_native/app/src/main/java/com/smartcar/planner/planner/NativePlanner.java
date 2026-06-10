@@ -26,6 +26,14 @@ public final class NativePlanner {
         GridMap map = input.copy();
         map.rebuildObjects();
         PlannerResult result = new PlannerResult();
+
+        // Validate the map before attempting to solve.
+        GridMap.ValidationResult validation = map.validate();
+        if (!validation.ok) {
+            result.message = validation.message;
+            return result;
+        }
+
         long startMillis = System.currentTimeMillis();
 
         Cell pushStart = map.player;
@@ -51,15 +59,27 @@ public final class NativePlanner {
         result.message = search.message;
         result.expanded = search.expanded;
         result.maxFrontierSeen = search.maxFrontierSeen;
+        // Copy diagnostic counters from the search result.
+        result.prunedByDeadlock = search.prunedByDeadlock;
+        result.prunedByActionLimit = search.prunedByActionLimit;
+        result.prunedByBestCost = search.prunedByBestCost;
+        result.prunedByFrontierTrim = search.prunedByFrontierTrim;
+        result.timeoutHit = search.timeoutHit;
+        result.expandedLimitHit = search.expandedLimitHit;
+        result.frontierLimitHit = search.frontierLimitHit;
+        result.actionLimitHit = search.actionLimitHit;
         if (!search.solved) return result;
 
         result.actions.addAll(search.actions);
         result.playerPath.addAll(search.pathWithoutFirst());
         result.pushes = search.pushes;
         result.totalCost = result.actions.size();
-        if (result.actions.size() > limits.maxActions) {
+        // Post-search action count check: if the final plan exceeds maxActions
+        // and the mode enforces it, reject the solution with a clear message.
+        if (limits.enforceActionLimitDuringSearch && result.actions.size() > limits.maxActions) {
             result.solved = false;
-            result.message = "动作数超过 STM32 限制: " + result.actions.size() + " > " + limits.maxActions;
+            result.actionLimitHit = true;
+            result.message = "动作数超过限制: " + result.actions.size() + " > " + limits.maxActions;
         }
         return result;
     }
@@ -97,13 +117,24 @@ public final class NativePlanner {
         int maxFrontierSeen = 1;
         while (!open.isEmpty()) {
             if (System.currentTimeMillis() - startMillis > limits.maxMillis) {
-                failed.message = "达到 STM32 时间限制 " + limits.maxMillis + "ms";
+                failed.message = "达到时间限制 " + limits.maxMillis + "ms，搜索未完成";
+                failed.timeoutHit = true;
                 failed.expanded = expanded;
                 failed.maxFrontierSeen = maxFrontierSeen;
                 return failed;
             }
-            if (expanded >= limits.maxExpanded) {
-                failed.message = "达到 STM32 扩展节点限制 " + limits.maxExpanded;
+            if (limits.enforceActionLimitDuringSearch && expanded >= limits.maxExpanded) {
+                failed.message = "达到扩展节点限制 " + limits.maxExpanded;
+                failed.expandedLimitHit = true;
+                failed.expanded = expanded;
+                failed.maxFrontierSeen = maxFrontierSeen;
+                return failed;
+            }
+            if (!limits.enforceActionLimitDuringSearch && expanded >= limits.maxExpanded) {
+                // In strict mode we still cap expanded to avoid infinite loops,
+                // but the message clarifies it is not an action count problem.
+                failed.message = "达到搜索节点预算 " + limits.maxExpanded + "（严格模式下仍无法找到更优解）";
+                failed.expandedLimitHit = true;
                 failed.expanded = expanded;
                 failed.maxFrontierSeen = maxFrontierSeen;
                 return failed;
@@ -125,15 +156,25 @@ public final class NativePlanner {
                 return ok;
             }
 
-            boolean forceBombFirst = !limits.strictShortest
+            // forceBombFirst is now a priority bonus, not a hard constraint.
+            // Boxes can still be pushed even when bombs exist; they are just
+            // explored after bomb pushes so the solver prefers bomb-first when
+            // it leads to a solution, without falsely marking solvable maps as
+            // "no solution".
+            boolean preferBombs = !limits.strictShortest
                 && map.allowBombPush
                 && node.destroyedWalls.length == 0
                 && hasLiveBomb(node.bombs);
             Occupancy occupancy = buildOccupancy(node.boxes, node.bombs);
-            Reachability reach = computeReachability(map, node, occupancy, forceBombFirst);
+            Reachability reach = computeReachability(map, node, occupancy, preferBombs);
 
+            // When preferBombs is active, we still enumerate ALL box pushes
+            // (the old code used "break" which skipped all boxes). The ordering
+            // in the open list naturally prefers bomb pushes because they are
+            // inserted first with a lower g, so box pushes only get explored if
+            // they lead to a better path. This prevents false "无解" on maps
+            // where pushing a box first is necessary.
             for (int boxIndex = 0; boxIndex < node.boxes.length; boxIndex++) {
-                if (forceBombFirst) break;
                 Cell box = node.boxes[boxIndex];
                 if (box == null) continue;
                 for (int[] dir : DIRS) {
@@ -155,7 +196,10 @@ public final class NativePlanner {
                     Cell[] nextBoxes = copyCells(node.boxes);
                     boolean delivered = pushed.equals(map.goals[boxIndex + 1]);
                     nextBoxes[boxIndex] = delivered ? null : pushed;
-                    if (!delivered && isDeadlock(map, pushed, boxIndex + 1, nextBoxes, node.destroyedWalls)) continue;
+                    if (!delivered && isDeadlock(map, pushed, boxIndex + 1, nextBoxes, node.destroyedWalls)) {
+                        failed.prunedByDeadlock++;
+                        continue;
+                    }
 
                     TransitionResult transition = appendTransition(
                         map,
@@ -174,8 +218,12 @@ public final class NativePlanner {
                         Character.toString(pushHeading)
                     );
                     maxFrontierSeen = Math.max(maxFrontierSeen, transition.maxFrontierSeen);
+                    failed.prunedByActionLimit += transition.prunedByActionLimit;
+                    failed.prunedByBestCost += transition.prunedByBestCost;
+                    failed.prunedByFrontierTrim += transition.prunedByFrontierTrim;
                     if (transition.frontierLimitHit) {
-                        failed.message = "达到 STM32 frontier 限制 " + limits.maxFrontier;
+                        failed.message = "达到 frontier 大小限制 " + limits.maxFrontier;
+                        failed.frontierLimitHit = true;
                         failed.expanded = expanded;
                         failed.maxFrontierSeen = maxFrontierSeen;
                         return failed;
@@ -229,8 +277,12 @@ public final class NativePlanner {
                             action
                         );
                         maxFrontierSeen = Math.max(maxFrontierSeen, transition.maxFrontierSeen);
+                        failed.prunedByActionLimit += transition.prunedByActionLimit;
+                        failed.prunedByBestCost += transition.prunedByBestCost;
+                        failed.prunedByFrontierTrim += transition.prunedByFrontierTrim;
                         if (transition.frontierLimitHit) {
-                            failed.message = "达到 STM32 frontier 限制 " + limits.maxFrontier;
+                            failed.message = "达到 frontier 大小限制 " + limits.maxFrontier;
+                            failed.frontierLimitHit = true;
                             failed.expanded = expanded;
                             failed.maxFrontierSeen = maxFrontierSeen;
                             return failed;
@@ -239,7 +291,11 @@ public final class NativePlanner {
                 }
             }
         }
-        failed.message = "无解";
+        if (failed.prunedByActionLimit > 0) {
+            failed.message = "搜索队列为空，所有候选状态均因动作数限制 (maxActions=" + limits.maxActions + ") 被剪枝";
+        } else {
+            failed.message = "搜索队列为空，无法到达目标（真无解）";
+        }
         failed.expanded = expanded;
         failed.maxFrontierSeen = maxFrontierSeen;
         return failed;
@@ -264,10 +320,20 @@ public final class NativePlanner {
         ArrayList<String> walkActions = reach.actionsTo(stance, nextHeading);
         int nextCost = node.g + walkActions.size() + 1;
         TransitionResult result = new TransitionResult(open.size());
-        if (actionOffset + nextCost > limits.maxActions) return result;
+
+        // Action limit enforcement during search: only reject when the mode
+        // explicitly enforces it. strictShortest never enforces this, so a
+        // valid long plan is never silently dropped.
+        if (limits.enforceActionLimitDuringSearch && actionOffset + nextCost > limits.maxActions) {
+            result.prunedByActionLimit = 1;
+            return result;
+        }
 
         String sk = stateKey(nextPlayer, nextHeading, nextBoxes, nextBombs, nextDestroyedWalls);
-        if (nextCost >= best.getOrDefault(sk, Integer.MAX_VALUE)) return result;
+        if (nextCost >= best.getOrDefault(sk, Integer.MAX_VALUE)) {
+            result.prunedByBestCost = 1;
+            return result;
+        }
         best.put(sk, nextCost);
 
         ArrayList<String> actions = new ArrayList<>(node.actions);
@@ -280,9 +346,18 @@ public final class NativePlanner {
 
         int f = priority(map, limits, nextCost, nextPlayer, nextBoxes, nextBombs, nextDestroyedWalls);
         open.add(new Node(nextPlayer, nextHeading, copyCells(nextBoxes), copyCells(nextBombs), nextDestroyedWalls, nextCost, f, actions, path));
-        if (limits.trimFrontier) trimFrontier(open, limits.maxFrontier);
+
+        // Frontier trimming enforcement: only trim when the mode asks for it.
+        // strictShortest never trims, so the full frontier is preserved.
+        if (limits.enforceFrontierLimitDuringSearch && limits.trimFrontier) {
+            int before = open.size();
+            trimFrontier(open, limits.maxFrontier);
+            result.prunedByFrontierTrim = before - open.size();
+        }
         result.maxFrontierSeen = Math.max(result.maxFrontierSeen, open.size());
-        result.frontierLimitHit = !limits.trimFrontier && open.size() > limits.maxFrontier;
+        result.frontierLimitHit = limits.enforceFrontierLimitDuringSearch
+            && !limits.trimFrontier
+            && open.size() > limits.maxFrontier;
         return result;
     }
 
@@ -437,10 +512,10 @@ public final class NativePlanner {
         return order;
     }
 
-    private Reachability computeReachability(GridMap map, Node node, Occupancy occupancy, boolean forceBombFirst) {
+    private Reachability computeReachability(GridMap map, Node node, Occupancy occupancy, boolean preferBombs) {
         ReachWorkspace ws = reachWorkspace;
         ws.nextSearch();
-        int remainingTargets = markTargetPoses(map, node, occupancy, ws, forceBombFirst);
+        int remainingTargets = markTargetPoses(map, node, occupancy, ws, preferBombs);
         int head = 0;
         int startPose = poseIndex(node.player, node.heading);
         ws.seenStamp[startPose] = ws.searchGeneration;
@@ -501,12 +576,12 @@ public final class NativePlanner {
         Node node,
         Occupancy occupancy,
         ReachWorkspace ws,
-        boolean forceBombFirst
+        boolean preferBombs
     ) {
         int count = 0;
-        if (!forceBombFirst) {
-            for (Cell box : node.boxes) count += markMovableTargets(map, node, occupancy, ws, box);
-        }
+        // Always mark box targets -- even when preferBombs is true we still
+        // need them for the BFS to know which poses are interesting.
+        for (Cell box : node.boxes) count += markMovableTargets(map, node, occupancy, ws, box);
         if (map.allowBombPush) {
             for (Cell bomb : node.bombs) count += markMovableTargets(map, node, occupancy, ws, bomb);
         }
@@ -920,7 +995,7 @@ public final class NativePlanner {
         }
     }
 
-    private static final class SearchResult {
+    static final class SearchResult {
         boolean solved;
         String message = "";
         int expanded;
@@ -929,15 +1004,28 @@ public final class NativePlanner {
         ArrayList<String> actions = new ArrayList<>();
         ArrayList<Cell> path = new ArrayList<>();
 
+        // Diagnostic counters.
+        int prunedByDeadlock;
+        int prunedByActionLimit;
+        int prunedByBestCost;
+        int prunedByFrontierTrim;
+        boolean timeoutHit;
+        boolean expandedLimitHit;
+        boolean frontierLimitHit;
+        boolean actionLimitHit;
+
         List<Cell> pathWithoutFirst() {
             if (path.size() <= 1) return new ArrayList<>();
             return path.subList(1, path.size());
         }
     }
 
-    private static final class TransitionResult {
+    static final class TransitionResult {
         boolean frontierLimitHit;
         int maxFrontierSeen;
+        int prunedByActionLimit;
+        int prunedByBestCost;
+        int prunedByFrontierTrim;
 
         TransitionResult(int maxFrontierSeen) {
             this.maxFrontierSeen = maxFrontierSeen;

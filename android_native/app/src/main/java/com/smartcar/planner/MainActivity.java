@@ -18,6 +18,10 @@ import com.smartcar.planner.planner.NativePlanner;
 import com.smartcar.planner.planner.PerformanceLimits;
 import com.smartcar.planner.planner.PlannerResult;
 
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
+
 public final class MainActivity extends Activity {
     private MapEditorView mapView;
     private TextView resultText;
@@ -27,6 +31,7 @@ public final class MainActivity extends Activity {
     private Button playButton;
     private Button stepButton;
     private Button speedButton;
+    private Button runButton;
     private PlannerResult currentResult;
     private boolean playing;
     private int speedIndex = 0;
@@ -43,6 +48,10 @@ public final class MainActivity extends Activity {
             if (playing) playbackHandler.postDelayed(this, playbackDelayMs());
         }
     };
+
+    // Background thread for solving -- prevents blocking the UI thread.
+    private final ExecutorService solverExecutor = Executors.newSingleThreadExecutor();
+    private final AtomicBoolean solving = new AtomicBoolean(false);
 
     @Override
     protected void onCreate(Bundle state) {
@@ -75,7 +84,7 @@ public final class MainActivity extends Activity {
         buttons.setOrientation(LinearLayout.HORIZONTAL);
         Button templateButton = new Button(this);
         templateButton.setText("载入模板");
-        Button runButton = new Button(this);
+        runButton = new Button(this);
         runButton.setText("手机本机跑图");
         buttons.addView(templateButton, new LinearLayout.LayoutParams(0, -2, 1));
         buttons.addView(runButton, new LinearLayout.LayoutParams(0, -2, 1));
@@ -130,6 +139,12 @@ public final class MainActivity extends Activity {
         stopPlayback();
     }
 
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        solverExecutor.shutdownNow();
+    }
+
     private Spinner spinner(String[] values) {
         Spinner spinner = new Spinner(this);
         spinner.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, values));
@@ -145,7 +160,12 @@ public final class MainActivity extends Activity {
     }
 
     private void runPlanner() {
+        // Prevent multiple concurrent solve tasks.
+        if (solving.getAndSet(true)) return;
         stopPlayback();
+        runButton.setEnabled(false);
+        runButton.setText("正在求解...");
+
         PerformanceLimits limits;
         int mode = limitSpinner.getSelectedItemPosition();
         if (mode == 0) {
@@ -155,11 +175,21 @@ public final class MainActivity extends Activity {
         } else {
             limits = PerformanceLimits.stm32Strict();
         }
-        PlannerResult result = planner.solve(mapView.getMap(), limits);
-        currentResult = result;
-        mapView.setResult(result);
-        updateResultText();
-        if (result.solved) startPlayback();
+        final GridMap mapCopy = mapView.getMap().copy();
+        final PerformanceLimits finalLimits = limits;
+
+        solverExecutor.execute(() -> {
+            PlannerResult result = planner.solve(mapCopy, finalLimits);
+            runOnUiThread(() -> {
+                currentResult = result;
+                mapView.setResult(result);
+                updateResultText();
+                runButton.setEnabled(true);
+                runButton.setText("手机本机跑图");
+                solving.set(false);
+                if (result.solved) startPlayback();
+            });
+        });
     }
 
     private void togglePlayback() {
@@ -219,7 +249,7 @@ public final class MainActivity extends Activity {
         if (result == null) return;
         int step = mapView.getAnimationStep();
         StringBuilder sb = new StringBuilder();
-        sb.append(result.solved ? "OK" : "FAILED")
+        sb.append(result.solved ? "✅ OK" : "❌ FAILED")
             .append("  frame=").append(step).append('/').append(mapView.getActionCount())
             .append("  speed=x").append(speedValues[speedIndex]).append('\n');
         sb.append(result.message).append('\n');
@@ -228,6 +258,11 @@ public final class MainActivity extends Activity {
             .append(", pushes=").append(result.pushes).append('\n');
         sb.append("expanded=").append(result.expanded)
             .append(", frontierMax=").append(result.maxFrontierSeen).append('\n');
+        // Show diagnostic counters when any are non-zero.
+        String diag = result.diagnosticsString();
+        if (!diag.isEmpty()) {
+            sb.append("diag: ").append(diag).append('\n');
+        }
         if (step > 0 && step <= result.actions.size()) {
             sb.append("currentAction=").append(result.actions.get(step - 1)).append('\n');
         }
