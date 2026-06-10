@@ -24,6 +24,7 @@ public final class PlannerResult {
     public boolean expandedLimitHit;
     public boolean frontierLimitHit;
     public boolean actionLimitHit;
+
     // Bomb diagnostics.
     public int bombMovesGenerated;
     public int bombExplosionsGenerated;
@@ -31,6 +32,12 @@ public final class PlannerResult {
     public int bombRelevantWallPruned;
     public boolean bombPriorityUsed;
     public int bombDepthPruned;
+
+    // Partial result tracking.
+    public boolean partialRecognitionOnly;
+    public boolean pushStageFailed;
+    public String nextStageHint = "";
+    public int remainingPushBudget;
 
     public String diagnosticsString() {
         StringBuilder sb = new StringBuilder();
@@ -49,6 +56,7 @@ public final class PlannerResult {
         if (bombRelevantWallPruned > 0) sb.append("bombWallPruned=").append(bombRelevantWallPruned).append(' ');
         if (bombDepthPruned > 0) sb.append("bombDepthPruned=").append(bombDepthPruned).append(' ');
         if (bombPriorityUsed) sb.append("bombPriority ");
+        if (pushStageFailed) sb.append("pushStageFailed ");
         return sb.toString().trim();
     }
 }

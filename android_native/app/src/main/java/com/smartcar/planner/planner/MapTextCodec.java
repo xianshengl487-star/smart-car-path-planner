@@ -108,9 +108,9 @@ public final class MapTextCodec {
     }
 
     public static void applyLevelFlags(GridMap map, int levelId) {
-        map.requiresRecognition = levelId == 102 || levelId == 103;
+        map.requiresRecognition = levelId == 102 || levelId == 103 || levelId == 106;
         map.scanBombs = false;
-        map.allowBombPush = levelId == 103;
+        map.allowBombPush = levelId == 103 || levelId == 105 || levelId == 106;
     }
 
     private static char[] parseMapRow(String line, int zeroBasedRow) {
@@ -184,8 +184,8 @@ public final class MapTextCodec {
     }
 
     private static int normalizeLevel(int levelId) {
-        if (levelId >= 101 && levelId <= 103) return levelId;
-        if (levelId >= 1 && levelId <= 3) return 100 + levelId;
+        if (levelId >= 101 && levelId <= 106) return levelId;
+        if (levelId >= 1 && levelId <= 6) return 100 + levelId;
         return 101;
     }
 

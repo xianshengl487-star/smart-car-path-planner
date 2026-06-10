@@ -192,23 +192,69 @@ public final class GridMap {
         GridMap map = new GridMap();
         addMazeWalls(map);
         map.setToken(5, 1, 'P');
+        // Base: B1(3,4) B2(7,11)  T1(3,10) T2(7,5) — overridden per level below.
         map.setToken(3, 4, '1');
         map.setToken(3, 10, 'a');
         map.setToken(7, 11, '2');
         map.setToken(7, 5, 'b');
-        if (levelId == 102 || levelId == 103) {
+        if (levelId == 102 || levelId == 103 || levelId == 106) {
             map.requiresRecognition = true;
         }
         if (levelId == 103) {
-            map.setToken(9, 6, '3');
-            map.setToken(9, 12, 'c');
+            // 103: 3 boxes + 1 bomb + recognition
+            // T1 moves from (3,10) to (3,12), add B3/T3, add bomb at (3,8)
             map.setToken(3, 10, '.');
             map.setToken(3, 12, 'a');
+            map.setToken(9, 6, '3');
+            map.setToken(9, 12, 'c');
             map.setToken(3, 8, 'X');
             map.setToken(2, 8, '#');
             map.setToken(3, 9, '#');
             map.setToken(4, 8, '#');
             map.scanBombs = false;
+            map.allowBombPush = true;
+        }
+        if (levelId == 104) {
+            // 104: 4 boxes, no vision, no bombs
+            // T1(3,12), T2(7,3), B3(5,5)→T3(5,11), B4(9,6)→T4(9,12)
+            map.setToken(3, 10, '.');
+            map.setToken(3, 12, 'a');
+            map.setToken(7, 5, '.');
+            map.setToken(7, 3, 'b');
+            map.setToken(5, 5, '3');
+            map.setToken(5, 11, 'c');
+            map.setToken(9, 6, '4');
+            map.setToken(9, 12, 'd');
+        }
+        if (levelId == 105) {
+            // 105: 2 boxes + 2 bombs, no vision
+            // T1(3,12), T2(7,3), X at (3,6) and (7,6)
+            // Extra walls at col 8 rows 2-4 and 6-8
+            map.setToken(3, 10, '.');
+            map.setToken(3, 12, 'a');
+            map.setToken(7, 5, '.');
+            map.setToken(7, 3, 'b');
+            map.setToken(3, 6, 'X');
+            map.setToken(7, 6, 'X');
+            map.setToken(2, 8, '#');
+            map.setToken(3, 8, '#');
+            map.setToken(4, 8, '#');
+            map.setToken(6, 8, '#');
+            map.setToken(7, 8, '#');
+            map.setToken(8, 8, '#');
+            map.allowBombPush = true;
+        }
+        if (levelId == 106) {
+            // 106: 3 boxes + 1 bomb + recognition
+            // T1(3,12), T2 stays at (7,5), B3(9,6)→T3(9,12), X at (3,6)
+            map.setToken(3, 10, '.');
+            map.setToken(3, 12, 'a');
+            map.setToken(9, 6, '3');
+            map.setToken(9, 12, 'c');
+            map.setToken(3, 6, 'X');
+            map.setToken(2, 8, '#');
+            map.setToken(3, 8, '#');
+            map.setToken(4, 8, '#');
             map.allowBombPush = true;
         }
         map.rebuildObjects();

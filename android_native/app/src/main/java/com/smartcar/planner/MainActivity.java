@@ -95,7 +95,14 @@ public final class MainActivity extends Activity {
         title.setGravity(Gravity.CENTER_HORIZONTAL);
         panel.addView(title, new LinearLayout.LayoutParams(-1, -2));
 
-        levelSpinner = spinner(new String[]{"101 只推箱", "102 识别+推箱", "103 识别箱/目标+炸弹"});
+        levelSpinner = spinner(new String[]{
+            "101 只推箱",
+            "102 识别+推箱",
+            "103 识别箱/目标+炸弹",
+            "104 四箱困难",
+            "105 双炸弹破墙",
+            "106 识别+炸弹困难"
+        });
         brushSpinner = spinner(new String[]{".", "#", "P", "B1", "T1", "B2", "T2", "B3", "T3", "X"});
         limitSpinner = spinner(new String[]{"严格最短", "STM32 快速", "STM32 极限"});
         panel.addView(levelSpinner, new LinearLayout.LayoutParams(-1, -2));
@@ -247,7 +254,10 @@ public final class MainActivity extends Activity {
                 runButton.setEnabled(true);
                 runButton.setText("手机本机跑图");
                 solving.set(false);
-                if (finalResult.solved) startPlayback();
+                // Start playback when recognition succeeded, even if the
+                // push search failed (timeout/limit). This lets the user see
+                // the recognition animation and understand what happened.
+                if (finalResult.solved || finalResult.recognitionCost > 0) startPlayback();
             });
         });
     }
@@ -271,7 +281,7 @@ public final class MainActivity extends Activity {
         try {
             String text = readText(uri);
             MapTextCodec.DecodeResult decoded = MapTextCodec.decode(text, selectedLevel());
-            if (decoded.levelId >= 101 && decoded.levelId <= 103) {
+            if (decoded.levelId >= 101 && decoded.levelId <= 106) {
                 levelSpinner.setSelection(decoded.levelId - 101);
             }
             stopPlayback();

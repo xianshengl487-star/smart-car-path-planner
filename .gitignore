@@ -21,6 +21,7 @@ outputs/
 android_native/.gradle/
 android_native/build/
 android_native/app/build/
+android_native/local.properties
 *.iml
 .idea/
 
