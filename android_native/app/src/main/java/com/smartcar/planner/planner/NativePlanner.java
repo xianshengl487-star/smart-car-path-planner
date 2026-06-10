@@ -690,9 +690,7 @@ public final class NativePlanner {
         boolean down = isWallDynamic(map, pos.row + 1, pos.col, destroyedWalls);
         boolean left = isWallDynamic(map, pos.row, pos.col - 1, destroyedWalls);
         boolean right = isWallDynamic(map, pos.row, pos.col + 1, destroyedWalls);
-        if ((up || down) && (left || right)) return true;
-        if ((up || down) && (goal == null || goal.row != pos.row)) return true;
-        if ((left || right) && (goal == null || goal.col != pos.col)) return true;
+        if ((up && left) || (up && right) || (down && left) || (down && right)) return true;
 
         int boxPosIndex = pos.index();
         for (int top = pos.row - 1; top <= pos.row; top++) {

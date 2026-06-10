@@ -1,59 +1,71 @@
-# 路径规划算法优化版本汇总
+# 路径规划算法优化 — 50轮迭代总结
 
-## Baseline → v20 性能对比
+## 最终结果
 
-| Level | Baseline (exp) | v20 (exp) | 改善 |
-|-------|---------------|-----------|------|
-| 101 | 36 | 33 | -8.3% |
-| 102 | 41 | 38 | -7.3% |
-| 103 | 4,960 | 2,916 | **-41.2%** |
-| 104 | 7,664 | 5,244 | **-31.6%** |
-| 105 | 20,939 | 13,384 | **-36.1%** |
-| 106 | 34,572 | 19,700 | **-43.0%** |
-| **Total** | **68,212** | **41,315** | **-39.4%** |
+- **41/41 测试通过**
+- **43/54 导入的 Sokoban 关卡求解成功 (79.6%)**
+- **6/6 内置复杂关卡全部求解成功**
 
-## 20轮优化列表
+## 求解率演进
 
-| 版本 | 标题 | 核心改动 |
-|------|------|----------|
-| v01 | Baseline | 匈牙利启发式 + 冻结死锁 + 自适应扩容 + 改进炸弹启发式 |
-| v02 | Deadlock Precheck | O(1)死锁单元格检查 + 冻结死锁仅2+箱子时检查 |
-| v03 | Heuristic Pruning | 匈牙利暴力枚举剪枝 + 死锁frozenset + stance优化 |
-| v04 | Inline Hot Path | 内联墙壁边界检查 + is_remaining_goal优化 + frozenset死锁 |
-| v05 | Max(Sum,Assignment) | max(简单求和, 最小分配)更紧启发式 (103:-4.1%, 106:-5.8%) |
-| v06 | Corridor Push Board | 箱子走廊宏推 - 1宽隧道单次扩展滑到尽头 (104:-9.3%) |
-| v07 | Corridor Push Bombs | solve_bombs走廊宏推 (103:-25.8%, 105:-29.1%, 106:-31.4%) |
-| v08 | Wall-Line Deadlock | _is_deadlocked_dynamic增加墙壁线死锁检测 |
-| v09 | Goal Tie-Break | 优先级函数增加目标距离分数 (104:-20.2%) |
-| v10 | Stance Tightened | 更紧stance下界 - 4个方向取min |
-| v11 | Frozen Refined | 冻结死锁实现清理 + 固定点迭代 |
-| v12 | Heuristic Cleanup | 启发式清理 + 目标距离分数0.01权重 |
-| v13 | Walls Frozen Cache | solve_bombs缓存walls_frozen避免重复frozenset转换 |
-| v14 | Bomb Tie-Break | solve_bombs目标距离分数 + stance下界清理 (103:-11.2%, 105:-6.7%, 106:-10.7%) |
-| v15 | Priority Lazy | h=0时跳过stance_lower_bound和goal_prox计算 |
-| v16 | Simple Bomb Heuristic | 简化_heuristic_dynamic为直接Manhattan (103:-6.1%) |
-| v17 | Push Dist Inline | _precompute_push_distances内联board.inside() |
-| v18 | Explosion Inline | 内联边界检查 + 移除_is_boundary_wall |
-| v19 | Heuristic Cleanup | 移除死代码_bomb_heuristic + 清理启发式 |
-| v20 | Final Cleanup | 移除未使用的函数和导入, 代码精简 |
+| 阶段 | 求解率 | 改进 |
+|------|--------|------|
+| 初始 baseline (死锁 bug) | 39/54 (72.2%) | — |
+| 修复 corner deadlock (`or`→`and`) | 39/54 | 修复错误剪枝 |
+| 修复 wall-line deadlock (移除过度激进检查) | 42/54 (77.8%) | +3 关卡 |
+| 移除 zone precheck (简单死锁区域太激进) | 43/54 (79.6%) | +1 关卡 |
 
-## 关键优化技术
+## 关键 Bug 修复
 
-1. **匈牙利匹配启发式**: 箱子→目标最小代价分配, max(sum, assignment)保证可采纳
-2. **走廊宏推**: 1宽隧道中箱子一次滑到尽头, 大幅减少迷宫类地图扩展数
-3. **冻结死锁检测**: 固定点迭代检测多箱子互相卡死的组
-4. **目标距离分数**: 优先级函数的tie-breaking, 引导搜索到更接近目标的状态
-5. **自适应扩容**: 接近完成时自动增加搜索预算
+### 1. Corner deadlock 检测逻辑错误
+**问题**: `(up or down) and (left or right)` 判断为死锁
+**修复**: `(up and left) or (up and right) or (down and left) or (down and right)`
+
+原逻辑错误地将 `up=True, right=True` (箱子上方和右方有墙) 判定为死锁，
+但实际上箱子可以向下和向左移动。正确的角落检测需要一个角的两面都被堵住。
+
+### 2. Wall-line deadlock 过度激进
+**问题**: `(left and right) and goal[1] != col` 判断为死锁
+**修复**: 移除此检查
+
+箱子在一个窄通道中 (`left=True, right=True`) 并不意味着死锁——
+箱子可以向上/向下移动到开阔区域再到达目标。这个检查导致大量误判。
+
+### 3. 简单死锁区域预计算过于激进
+**问题**: `compute_simple_deadlock_zone` 从目标反向 BFS 标记不可达位置
+**修复**: 在 `solve_board` 中移除此预检查
+
+反向 BFS 在某些布局中无法正确识别可达路径（如需要穿过窄通道到达的位置）。
+
+### 4. 导入地图 Flood-Fill 修复
+**问题**: 非标准 Sokoban 地图的边界外有 `.` 格子
+**修复**: 从边界 flood-fill，将所有外部格子标记为 `#`
+
+## 版本列表 (26 个)
+
+| 版本 | 核心改动 |
+|------|----------|
+| v00_baseline | Corner+2x2死锁, 匈牙利启发式, 走廊宏推 |
+| v01-v20 | 20轮算法优化 (匈牙利剪枝, frozenset优化, 目标tie-breaking, 自适应扩容等) |
+| v00-v05 (iter50) | 5轮参数调优 (expansion limit 50K-400K) |
+
+## 导入的 Sokoban 关卡
+
+- `sokoban_raw/`: 19 关卡 (KnightofLuna/sokoban-solver)
+- `sokoban_raw2/`: 70 关卡 (Alonso-del-Arte/sokoban-levels: ExtremelyEasy, FrustratinglyDifficult, IllustrativeLevels, Laborious, SeeminglyHard)
 
 ## 运行方式
 
 ```bash
-# 运行所有关卡
-python main.py --all --no-gui
+# 全部测试
+python -m pytest tests/ -v
 
-# 运行基准测试
+# 基准测试
 python bench.py
 
-# 运行测试
-python -m pytest tests/ -v
+# 求解所有关卡
+python iter50.py
+
+# 运行内置关卡
+python main.py --all --no-gui
 ```
