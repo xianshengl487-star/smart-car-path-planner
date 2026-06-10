@@ -85,6 +85,12 @@ public final class NativePlanner {
             // recognition actions and cost so the UI can animate them.
             if (result.recognitionCost > 0) {
                 result.totalCost = result.recognitionCost;
+                result.recognitionSolved = true;
+                result.pushStageSolved = false;
+                result.partialRecognitionOnly = true;
+                result.pushStageMessage = search.message;
+                result.message = "识别完成，但推箱阶段失败：" + search.message;
+                result.wallSeveranceWarnings.addAll(computeWallSeveranceWarnings(map));
             }
             return result;
         }
@@ -93,12 +99,56 @@ public final class NativePlanner {
         result.playerPath.addAll(search.pathWithoutFirst());
         result.pushes = search.pushes;
         result.totalCost = result.actions.size();
+        result.recognitionSolved = result.recognitionCost > 0;
+        result.pushStageSolved = true;
         if (limits.enforceActionLimitDuringSearch && result.actions.size() > limits.maxTotalActions) {
             result.solved = false;
             result.actionLimitHit = true;
             result.message = "动作数超过限制: " + result.actions.size() + " > " + limits.maxTotalActions;
         }
         return result;
+    }
+
+    // ======================================================================
+    // computeWallSeveranceWarnings() -- detect unreachable box→goal pairs
+    // ======================================================================
+    private List<String> computeWallSeveranceWarnings(GridMap map) {
+        List<String> warnings = new ArrayList<>();
+        if (map.allowBombPush) return warnings; // bombs can break walls
+        for (int id = 1; id <= GridMap.MAX_BOXES; id++) {
+            if (map.boxes[id] == null || map.goals[id] == null) continue;
+            if (!floodCanReach(map, map.boxes[id].row, map.boxes[id].col,
+                               map.goals[id].row, map.goals[id].col)) {
+                warnings.add("B" + id + " 到 T" + id + " 可能被墙隔断");
+            }
+        }
+        return warnings;
+    }
+
+    /** Simple BFS flood-fill: can (r0,c0) reach (r1,c1) treating walls AND boxes as obstacles? */
+    private boolean floodCanReach(GridMap map, int r0, int c0, int r1, int c1) {
+        if (r0 == r1 && c0 == c1) return true;
+        boolean[] visited = new boolean[GridMap.CELLS];
+        ArrayDeque<int[]> queue = new ArrayDeque<>();
+        queue.add(new int[]{r0, c0});
+        visited[r0 * GridMap.COLS + c0] = true;
+        while (!queue.isEmpty()) {
+            int[] cur = queue.poll();
+            for (int[] d : DIRS) {
+                int nr = cur[0] + d[0], nc = cur[1] + d[1];
+                if (nr < 0 || nr >= GridMap.ROWS || nc < 0 || nc >= GridMap.COLS) continue;
+                int idx = nr * GridMap.COLS + nc;
+                if (visited[idx]) continue;
+                if (map.isWall(nr, nc)) continue;
+                // Treat current box positions as obstacles (push stage cannot
+                // teleport boxes, so a box between Bn and Tn blocks that path).
+                if (map.token(nr, nc) >= '1' && map.token(nr, nc) <= '4') continue;
+                if (nr == r1 && nc == c1) return true;
+                visited[idx] = true;
+                queue.add(new int[]{nr, nc});
+            }
+        }
+        return false;
     }
 
     // ======================================================================

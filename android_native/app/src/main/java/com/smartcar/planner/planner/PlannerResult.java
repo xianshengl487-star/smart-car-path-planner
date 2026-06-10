@@ -34,10 +34,11 @@ public final class PlannerResult {
     public int bombDepthPruned;
 
     // Partial result tracking.
+    public boolean recognitionSolved;
+    public boolean pushStageSolved;
     public boolean partialRecognitionOnly;
-    public boolean pushStageFailed;
-    public String nextStageHint = "";
-    public int remainingPushBudget;
+    public String pushStageMessage = "";
+    public final List<String> wallSeveranceWarnings = new ArrayList<>();
 
     public String diagnosticsString() {
         StringBuilder sb = new StringBuilder();
@@ -56,7 +57,7 @@ public final class PlannerResult {
         if (bombRelevantWallPruned > 0) sb.append("bombWallPruned=").append(bombRelevantWallPruned).append(' ');
         if (bombDepthPruned > 0) sb.append("bombDepthPruned=").append(bombDepthPruned).append(' ');
         if (bombPriorityUsed) sb.append("bombPriority ");
-        if (pushStageFailed) sb.append("pushStageFailed ");
+        if (partialRecognitionOnly) sb.append("partialRecognitionOnly ");
         return sb.toString().trim();
     }
 }

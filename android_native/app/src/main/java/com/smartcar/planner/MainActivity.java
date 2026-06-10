@@ -257,7 +257,12 @@ public final class MainActivity extends Activity {
                 // Start playback when recognition succeeded, even if the
                 // push search failed (timeout/limit). This lets the user see
                 // the recognition animation and understand what happened.
-                if (finalResult.solved || finalResult.recognitionCost > 0) startPlayback();
+                // However, skip auto-play for partial recognition only (push
+                // truly unsolvable) to avoid misleading the user.
+                if (finalResult.solved ||
+                    (finalResult.recognitionCost > 0 && !finalResult.partialRecognitionOnly)) {
+                    startPlayback();
+                }
             });
         });
     }
@@ -388,9 +393,16 @@ public final class MainActivity extends Activity {
         if (result == null) return;
         int step = mapView.getAnimationStep();
         StringBuilder sb = new StringBuilder();
-        sb.append(result.solved ? "✅ OK" : "❌ FAILED")
-            .append("  frame=").append(step).append('/').append(mapView.getActionCount())
+        if (result.partialRecognitionOnly) {
+            sb.append("⚠️ 仅识别完成");
+        } else {
+            sb.append(result.solved ? "✅ OK" : "❌ FAILED");
+        }
+        sb.append("  frame=").append(step).append('/').append(mapView.getActionCount())
             .append("  speed=x").append(speedValues[speedIndex]).append('\n');
+        if (result.partialRecognitionOnly) {
+            sb.append("当前仅为识别路径，不是完整推箱方案\n");
+        }
         sb.append(result.message).append('\n');
         sb.append("cost=").append(result.totalCost)
             .append(", scan=").append(result.recognitionCost)
@@ -400,6 +412,11 @@ public final class MainActivity extends Activity {
         String diag = result.diagnosticsString();
         if (!diag.isEmpty()) {
             sb.append("diag: ").append(diag).append('\n');
+        }
+        if (!result.wallSeveranceWarnings.isEmpty()) {
+            for (String w : result.wallSeveranceWarnings) {
+                sb.append("⚠ ").append(w).append('\n');
+            }
         }
         if (step > 0 && step <= result.actions.size()) {
             sb.append("currentAction=").append(result.actions.get(step - 1)).append('\n');
@@ -436,9 +453,16 @@ public final class MainActivity extends Activity {
             sb.append("pushes=").append(result.pushes).append('\n');
             sb.append("expanded=").append(result.expanded).append('\n');
             sb.append("maxFrontierSeen=").append(result.maxFrontierSeen).append('\n');
+            sb.append("recognitionSolved=").append(result.recognitionSolved).append('\n');
+            sb.append("pushStageSolved=").append(result.pushStageSolved).append('\n');
+            sb.append("partialRecognitionOnly=").append(result.partialRecognitionOnly).append('\n');
+            sb.append("pushStageMessage=").append(result.pushStageMessage).append('\n');
             sb.append("diagnostics=").append(result.diagnosticsString()).append('\n');
             sb.append("actions=").append(result.actions).append('\n');
             sb.append("recognition=").append(result.recognitionOrder).append('\n');
+            if (!result.wallSeveranceWarnings.isEmpty()) {
+                sb.append("wallSeveranceWarnings=").append(result.wallSeveranceWarnings).append('\n');
+            }
         }
         sb.append('\n');
 

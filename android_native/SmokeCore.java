@@ -230,6 +230,44 @@ public final class SmokeCore {
             }
         }
 
+        // --- Test 26: recognition success but push unsolvable (B2 stuck in corner) ---
+        {
+            // Custom 12x16 map: B2(1,1) is in the top-left corner.
+            // Player can walk there to scan it, but the box can't be pushed
+            // out (boundary walls on two sides, no stance on the other two).
+            // Push stage is truly unsolvable, but recognition succeeds.
+            GridMap map = new GridMap();
+            for (int r = 1; r <= 10; r++)
+                for (int c = 1; c <= 14; c++)
+                    map.setToken(r, c, '.');
+            map.setToken(5, 1, 'P');
+            map.setToken(3, 3, '1');
+            map.setToken(3, 5, 'a');
+            map.setToken(1, 1, '2');
+            map.setToken(7, 5, 'b');
+            map.requiresRecognition = true;
+            map.rebuildObjects();
+            PlannerResult r = planner.solve(map, PerformanceLimits.strictShortest());
+            String label = "102 corner-stuck B2 partial";
+            if (r.solved) { fail(label + " should not be fully solved"); failed++; }
+            else if (!r.partialRecognitionOnly) { fail(label + " partialRecognitionOnly should be true, message=" + r.message); failed++; }
+            else if (r.pushes != 0) { fail(label + " pushes should be 0, got " + r.pushes); failed++; }
+            else if (r.recognitionCost == 0) { fail(label + " recognition should have succeeded"); failed++; }
+            else { pass(label + " message=" + r.message); passed++; }
+        }
+
+        // --- Test 27: wall-severance warning absent for standard 102 ---
+        {
+            // In the standard 102 template, B2(7,11) can reach T2(7,5) via
+            // row 7 (no wall blocks it). Verify no false-positive warnings.
+            GridMap map = GridMap.template(102);
+            PlannerResult r = planner.solve(map, PerformanceLimits.strictShortest());
+            String label = "102 no false wall-severance";
+            if (!r.solved) { fail(label + " failed: " + r.message); failed++; }
+            else if (!r.wallSeveranceWarnings.isEmpty()) { fail(label + " false warnings: " + r.wallSeveranceWarnings); failed++; }
+            else { pass(label); passed++; }
+        }
+
         System.out.println("\n=== SmokeCore Results: " + passed + " passed, " + failed + " failed ===");
         if (failed > 0) System.exit(1);
     }

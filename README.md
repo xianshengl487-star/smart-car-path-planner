@@ -2,7 +2,7 @@
 
 一个面向智能车视觉赛题的 16 x 12 栅格路径规划项目。它把“推箱子”规则改造成更接近比赛任务的工程模型：小车有方向、箱子和目标点需要编号匹配、102/103 需要先进行视觉识别路线规划，103 还加入可推动炸弹和炸墙机制。项目同时提供 PC 端 Python 求解器、OpenCV 截图识别、Tkinter 动画演示、原生 Android 地图编辑与跑图 APP，以及 STM32F304 固件导出思路。
 
-[Latest APK Release](https://github.com/xianshengl487-star/smart-car-path-planner/releases/latest) · [Android source](android_native/) · [STM32 notes](embedded/stm32f304/) · [Optimization roadmap](OPTIMIZATION_ROADMAP.md)
+[Latest APK Release](https://github.com/xianshengl487-star/smart-car-path-planner/releases/latest) · [Core logic](docs/CORE_LOGIC.md) · [Android source](android_native/) · [STM32 notes](embedded/stm32f304/) · [Optimization roadmap](OPTIMIZATION_ROADMAP.md)
 
 > [!NOTE]
 > 当前 Android APP 已打包上传到 GitHub Release。手机端可以自定义 101/102/103 地图并在本机跑规划逻辑，同时用扩展节点数、队列大小、动作长度、运行时间等限制来模拟 STM32F304 的资源约束。
@@ -259,3 +259,5 @@ $env:ANDROID_SDK_ROOT=$env:ANDROID_HOME
 - STM32：适合执行 PC/手机侧规划好的紧凑动作序列。
 
 后续优化方向记录在 [OPTIMIZATION_ROADMAP.md](OPTIMIZATION_ROADMAP.md)，包括模式数据库、双向宏搜索、安全死锁学习和嵌入式有界搜索。
+
+更详细的算法与代码说明见 [docs/CORE_LOGIC.md](docs/CORE_LOGIC.md)。
