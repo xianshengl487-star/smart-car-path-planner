@@ -206,6 +206,120 @@ def _parse_id(token: str, prefix: str) -> int:
     return int(suffix)
 
 
+# ---------------------------------------------------------------------------
+# load_text_map — read a MapTextCodec-style .txt file into a Level
+# ---------------------------------------------------------------------------
+
+# MapTextCodec compact tokens → Level grid tokens expected by parse_level
+_TEXT_TO_LEVEL_TOKEN: dict[str, str] = {
+    ".": ".",
+    "#": "#",
+    "P": "P",
+    "X": "X",
+    "B1": "B1", "B2": "B2", "B3": "B3", "B4": "B4",
+    "T1": "T1", "T2": "T2", "T3": "T3", "T4": "T4",
+    "a": "T1", "b": "T2", "c": "T3", "d": "T4",
+    "1": "B1", "2": "B2", "3": "B3", "4": "B4",
+    "5": "B5", "6": "B6", "7": "B7", "8": "B8",
+}
+
+
+def _parse_map_row(line: str) -> list[str]:
+    """Parse one grid row from either compact or spaced format."""
+    stripped = line.strip()
+    if " " in stripped:
+        return stripped.split()
+    # Compact: 16 characters without spaces
+    return list(stripped)
+
+
+def load_text_map(path: "str | Path") -> Level:
+    """Read a MapTextCodec-style .txt map file and return a Level object.
+
+    The file may contain comment lines (starting with ``//``), a header line
+    with ``key=value`` pairs, and 12 rows of 16 tokens each.
+
+    Accepted header keys: level, heading, recognition, scanBombs, allowBombPush.
+    Tokens are translated from MapTextCodec compact form (``1``, ``a``) to the
+    Level grid form (``B1``, ``T1``) expected by :func:`parse_level`.
+    """
+    from pathlib import Path as _Path
+
+    text = _Path(path).read_text(encoding="utf-8")
+    lines = text.splitlines()
+
+    # Defaults (match MapTextCodec defaults)
+    level_id = 201
+    heading = "R"
+    recognition = False
+    scan_bombs = False
+    allow_bomb_push = False
+    grid_lines: list[str] = []
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("//"):
+            continue
+        if "=" in stripped and not stripped[0].isdigit() and stripped[0] != "." and stripped[0] != "#":
+            # Header line
+            for part in stripped.split():
+                eq = part.find("=")
+                if eq <= 0:
+                    continue
+                key = part[:eq].lower()
+                val = part[eq + 1:]
+                if key == "level":
+                    level_id = int(val)
+                elif key == "heading":
+                    heading = val.upper()
+                elif key == "recognition":
+                    recognition = val.lower() == "true"
+                elif key == "scanbombs":
+                    scan_bombs = val.lower() == "true"
+                elif key == "allowbombpush":
+                    allow_bomb_push = val.lower() == "true"
+            continue
+        grid_lines.append(stripped)
+
+    if len(grid_lines) != 12:
+        raise ValueError(f"Expected 12 grid rows, got {len(grid_lines)} in {path}")
+
+    # Parse grid rows and translate tokens
+    rows: list[tuple[str, ...]] = []
+    for row_str in grid_lines:
+        tokens = _parse_map_row(row_str)
+        if len(tokens) != 16:
+            raise ValueError(f"Expected 16 tokens per row, got {len(tokens)} in {path}")
+        translated = []
+        for tok in tokens:
+            mapped = _TEXT_TO_LEVEL_TOKEN.get(tok)
+            if mapped is None:
+                raise ValueError(f"Unknown token {tok!r} in {path}")
+            translated.append(mapped)
+        rows.append(tuple(translated))
+
+    # Infer category from flags
+    if scan_bombs:
+        category = 3
+    elif recognition:
+        category = 2
+    else:
+        category = 2  # push-only still category 2 in complex_maps convention
+
+    return Level(
+        level_id=level_id,
+        name=_Path(path).stem,
+        rows=tuple(rows),
+        category=category,
+        use_vision=recognition,
+        use_deadlock=True,
+        requires_approach_recognition=recognition,
+        boxes_vanish_on_goal=True,
+        start_heading=heading,
+        description=f"Loaded from {_Path(path).name}",
+    )
+
+
 def add_pos(pos: Position, delta: tuple[int, int]) -> Position:
     return pos[0] + delta[0], pos[1] + delta[1]
 

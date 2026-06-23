@@ -17,6 +17,7 @@
 - PC 端支持 OpenCV 识别程序生成图、比赛截图批处理、Tkinter 动画和 PNG 结果输出。
 - 原生 Android APP 支持横屏地图编辑、逐步动画、播放/暂停、单步、x1/x2/x4/x8 快进。
 - Android APP 新增 `手机全量` 求解模式，解除节点、队列、时间、动作和炸弹深度上限，优先提高已知地图跑通率。
+- `hard_maps/` 集成外部困难地图样本，可用 30 分钟循环脚本持续检查复杂图、外部图和比赛截图。
 - STM32F304 导出采用固定数组、1 字节动作、无动态分配，适合小 SRAM 单片机执行预规划动作。
 
 ## 规则模型
@@ -92,6 +93,18 @@ python main.py --all --delay 80
 ```powershell
 python main.py --image "G:\路径规划\比赛关卡\example.png" --no-gui
 python main.py --contest --no-gui --max-expanded 250000
+```
+
+运行外部困难地图测试：
+
+```powershell
+python -m pytest tests\test_hard_maps.py -v
+```
+
+每 30 分钟持续检查一次复杂地图、外部困难地图和比赛截图：
+
+```powershell
+python scripts\watch_optimization.py --interval-seconds 1800 --include-contest
 ```
 
 打开 PC 端地图编辑器：
