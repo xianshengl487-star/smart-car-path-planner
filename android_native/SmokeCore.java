@@ -268,6 +268,47 @@ public final class SmokeCore {
             else { pass(label); passed++; }
         }
 
+        // --- Test 28: 104 androidNative (4 boxes, high budget) ---
+        {
+            PlannerResult r = planner.solve(GridMap.template(104), PerformanceLimits.androidNative());
+            String label = "104 androidNative";
+            if (!r.solved) { fail(label + " failed: " + r.message); failed++; }
+            else {
+                String err = ActionReplayValidator.validate(GridMap.template(104), r);
+                if (err != null) { fail(label + " validation: " + err); failed++; }
+                else { pass(label + " cost=" + r.totalCost + " expanded=" + r.expanded); passed++; } } }
+
+        // --- Test 29: 105 androidNative (2 bombs, high budget) ---
+        {
+            PlannerResult r = planner.solve(GridMap.template(105), PerformanceLimits.androidNative());
+            String label = "105 androidNative";
+            if (!r.solved) { fail(label + " failed: " + r.message); failed++; }
+            else if (!containsExplosion(r)) { fail(label + " missing explosion"); failed++; }
+            else {
+                String err = ActionReplayValidator.validate(GridMap.template(105), r);
+                if (err != null) { fail(label + " validation: " + err); failed++; }
+                else { pass(label + " cost=" + r.totalCost + " expanded=" + r.expanded); passed++; } } }
+
+        // --- Test 30: 106 androidNative (recognition + bomb, high budget) ---
+        {
+            PlannerResult r = planner.solve(GridMap.template(106), PerformanceLimits.androidNative());
+            String label = "106 androidNative";
+            if (!r.solved) { fail(label + " failed: " + r.message); failed++; }
+            else if (r.recognitionCost == 0) { fail(label + " missing recognition"); failed++; }
+            else if (!containsExplosion(r)) { fail(label + " missing explosion"); failed++; }
+            else {
+                String err = ActionReplayValidator.validate(GridMap.template(106), r);
+                if (err != null) { fail(label + " validation: " + err); failed++; }
+                else { pass(label + " cost=" + r.totalCost + " expanded=" + r.expanded); passed++; } } }
+
+        // --- Test 31: 101 androidNative fast sanity ---
+        {
+            PlannerResult r = planner.solve(GridMap.template(101), PerformanceLimits.androidNative());
+            String label = "101 androidNative";
+            if (!r.solved) { fail(label + " failed: " + r.message); failed++; }
+            else if (r.totalCost != 29) { fail(label + " cost changed: " + r.totalCost); failed++; }
+            else { pass(label + " cost=" + r.totalCost); passed++; } }
+
         System.out.println("\n=== SmokeCore Results: " + passed + " passed, " + failed + " failed ===");
         if (failed > 0) System.exit(1);
     }

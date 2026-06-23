@@ -9,6 +9,7 @@ venv/
 
 # Local agent / orchestration scratch data
 .claude/
+.claude-body-control/
 .orchestration/
 
 # Generated outputs and packaged artifacts

@@ -56,6 +56,24 @@ public final class PerformanceLimits {
         return limits;
     }
 
+    public static PerformanceLimits androidNative() {
+        PerformanceLimits limits = new PerformanceLimits();
+        limits.maxExpanded = Integer.MAX_VALUE;
+        limits.maxFrontier = Integer.MAX_VALUE;
+        limits.maxMillis = Long.MAX_VALUE;
+        limits.strictShortest = false;
+        limits.trimFrontier = false;
+        limits.heuristicWeight = 1;
+        limits.maxRecognitionActions = Integer.MAX_VALUE;
+        limits.maxPushActions = Integer.MAX_VALUE;
+        limits.maxTotalActions = Integer.MAX_VALUE;
+        limits.enforceActionLimitDuringSearch = false;
+        limits.enforceFrontierLimitDuringSearch = false;
+        limits.bombPriorityBias = true;
+        limits.bombMoveDepthLimit = Integer.MAX_VALUE;
+        return limits;
+    }
+
     public static PerformanceLimits stm32Relaxed() {
         PerformanceLimits limits = new PerformanceLimits();
         limits.maxExpanded = 250000;

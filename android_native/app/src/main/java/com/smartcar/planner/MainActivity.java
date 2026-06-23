@@ -104,7 +104,7 @@ public final class MainActivity extends Activity {
             "106 识别+炸弹困难"
         });
         brushSpinner = spinner(new String[]{".", "#", "P", "B1", "T1", "B2", "T2", "B3", "T3", "X"});
-        limitSpinner = spinner(new String[]{"严格最短", "STM32 快速", "STM32 极限"});
+        limitSpinner = spinner(new String[]{"严格最短", "STM32 快速", "STM32 极限", "手机全量"});
         panel.addView(levelSpinner, new LinearLayout.LayoutParams(-1, -2));
         panel.addView(brushSpinner, new LinearLayout.LayoutParams(-1, -2));
         panel.addView(limitSpinner, new LinearLayout.LayoutParams(-1, -2));
@@ -227,8 +227,10 @@ public final class MainActivity extends Activity {
             limits = PerformanceLimits.strictShortest();
         } else if (mode == 1) {
             limits = PerformanceLimits.stm32Relaxed();
-        } else {
+        } else if (mode == 2) {
             limits = PerformanceLimits.stm32Strict();
+        } else {
+            limits = PerformanceLimits.androidNative();
         }
         final GridMap mapCopy = mapView.getMap().copy();
         final PerformanceLimits finalLimits = limits;
