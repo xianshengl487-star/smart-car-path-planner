@@ -82,3 +82,69 @@ class HardMapLoadTests(unittest.TestCase):
                 clear_heuristic_cache()
                 result = solve(board, max_expanded=120_000)
                 self.assertTrue(result.solved, f"{path.name}: {result.message}")
+
+    def test_no_duplicate_wall_layouts(self) -> None:
+        """Wall-identical maps are poor benchmark coverage.
+
+        Boxes still deliver to matching numbered targets; this check only keeps
+        the external-map set varied enough to exercise different corridors.
+        """
+        files = _hard_map_files()
+        if not files:
+            self.skipTest("No .txt maps in hard_maps/")
+        seen: dict[frozenset, str] = {}
+        for path in files:
+            level = load_text_map(path)
+            board = parse_level(level)
+            key = frozenset(board.walls)
+            if key in seen:
+                self.fail(
+                    f"Duplicate wall layout: {path.name} matches {seen[key]}"
+                )
+            seen[key] = path.name
+
+    def test_no_duplicate_box_configurations(self) -> None:
+        """Two maps with the same walls and box starts are likely duplicates.
+
+        Target numbering remains fixed (B1 -> T1), so this catches duplicate
+        imports without weakening the numbered-box rule.
+        """
+        files = _hard_map_files()
+        if not files:
+            self.skipTest("No .txt maps in hard_maps/")
+        seen: dict[tuple, str] = {}
+        for path in files:
+            level = load_text_map(path)
+            board = parse_level(level)
+            key = (frozenset(board.walls), frozenset(board.boxes.values()))
+            if key in seen:
+                self.fail(
+                    f"Duplicate box config: {path.name} matches {seen[key]}"
+                )
+            seen[key] = path.name
+
+    def test_all_hard_maps_are_nontrivial(self) -> None:
+        """Flag maps solvable in <500 expanded as too easy for hard_maps/.
+        This is a soft check — it warns but does not fail, since some
+        easy maps may be useful as sanity-check anchors."""
+        files = _hard_map_files()
+        if not files:
+            self.skipTest("No .txt maps in hard_maps/")
+        easy_maps = []
+        for path in files:
+            level = load_text_map(path)
+            board = parse_level(level)
+            clear_heuristic_cache()
+            result = solve(board, max_expanded=120_000)
+            if result.solved and result.expanded < 500:
+                easy_maps.append(
+                    f"{path.name} (expanded={result.expanded})"
+                )
+        if easy_maps:
+            # Soft warning — does not fail the test
+            import sys
+            print(
+                f"\nWARNING: {len(easy_maps)} trivial map(s) in hard_maps/ "
+                f"(expanded < 500): {easy_maps}",
+                file=sys.stderr,
+            )

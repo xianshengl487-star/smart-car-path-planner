@@ -9,8 +9,13 @@ and writes only maps that pass the project solver.
 from __future__ import annotations
 
 import argparse
+import sys
 import urllib.request
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from planner.grid import load_text_map, parse_level
 from planner.solver import clear_heuristic_cache, solve
