@@ -8,7 +8,7 @@ The current sample set is converted from
 (`hard/000.txt`). Classic Sokoban maps allow any box to reach any target, while
 this project requires fixed numbering (`B1 -> T1`, etc.), so imported maps are
 screened by the project solver before being committed. The committed set
-currently contains 12 verified maps.
+currently contains 20 verified maps.
 
 ## Format
 
@@ -57,7 +57,8 @@ The file stem becomes the Level name in test output.
 ## Import More Boxoban Maps
 
 ```powershell
-python scripts\import_boxoban_hard_maps.py --limit 12 --scan 300 --max-expanded 120000
+python scripts\import_boxoban_hard_maps.py --limit 20 --scan 800 --max-expanded 160000
+python scripts\import_boxoban_hard_maps.py --limit 10 --scan 1000 --max-expanded 200000 --min-expanded 1000
 python -m pytest tests\test_hard_maps.py -v
 ```
 

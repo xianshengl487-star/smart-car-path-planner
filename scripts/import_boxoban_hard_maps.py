@@ -101,6 +101,12 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=5, help="number of solved maps to write")
     parser.add_argument("--scan", type=int, default=120, help="number of source maps to scan")
     parser.add_argument("--max-expanded", type=int, default=80000)
+    parser.add_argument(
+        "--min-expanded",
+        type=int,
+        default=0,
+        help="only write solved maps whose search expanded at least this many states",
+    )
     parser.add_argument("--out", default="hard_maps")
     args = parser.parse_args()
 
@@ -120,6 +126,8 @@ def main() -> int:
         clear_heuristic_cache()
         result = solve(board, max_expanded=args.max_expanded)
         if not result.solved:
+            continue
+        if result.expanded < args.min_expanded:
             continue
         target = out_dir / f"boxoban_hard_000_{level_id:03d}.txt"
         target.write_text(converted, encoding="utf-8")
