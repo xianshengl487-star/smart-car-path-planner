@@ -24,6 +24,13 @@ New-Item -ItemType Directory -Force -Path $outputsDir | Out-Null
 
 Write-Host "=== SmartCar Planner Android Packaging ===" -ForegroundColor Cyan
 
+$preferredJdk = "C:\Program Files\Zulu\zulu-17"
+if (Test-Path (Join-Path $preferredJdk "bin\java.exe")) {
+    $env:JAVA_HOME = $preferredJdk
+    $env:PATH = (Join-Path $preferredJdk "bin") + [IO.Path]::PathSeparator + $env:PATH
+    Write-Host "Using JAVA_HOME=$env:JAVA_HOME" -ForegroundColor Cyan
+}
+
 # 1. Gate: run the core smoke test (pure Java, no Android SDK needed)
 #    This ensures the Java port of the planner (recognition + A* + bomb + vanish)
 #    still matches the committed expectations before we ship an APK.
