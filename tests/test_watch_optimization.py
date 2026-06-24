@@ -1,7 +1,13 @@
 import unittest
 from unittest.mock import patch
 
-from scripts.watch_optimization import format_manifest_summary, main, summarize_results, update_manifest
+from scripts.watch_optimization import (
+    check_manifest_health,
+    format_manifest_summary,
+    main,
+    summarize_results,
+    update_manifest,
+)
 
 
 class WatchOptimizationSummaryTests(unittest.TestCase):
@@ -139,6 +145,72 @@ class WatchOptimizationSummaryTests(unittest.TestCase):
         with patch("scripts.watch_optimization.load_manifest", return_value=manifest), \
              patch("scripts.watch_optimization.run_once") as run_once, \
              patch("sys.argv", ["watch_optimization.py", "--show-manifest"]):
+            exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        run_once.assert_not_called()
+
+    def test_check_manifest_health_passes_when_thresholds_are_met(self) -> None:
+        manifest = {
+            "coverage": {
+                "tracked_maps": 43,
+                "all_tracked_solved_last_run": True,
+                "min_consecutive_solves": 3,
+                "total_regressions": 0,
+            }
+        }
+
+        exit_code, message = check_manifest_health(
+            manifest,
+            min_tracked_maps=40,
+            min_consecutive_solves=2,
+        )
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("OK:", message)
+
+    def test_check_manifest_health_fails_on_regression_or_threshold(self) -> None:
+        manifest = {
+            "coverage": {
+                "tracked_maps": 10,
+                "all_tracked_solved_last_run": False,
+                "min_consecutive_solves": 0,
+                "total_regressions": 1,
+            }
+        }
+
+        exit_code, message = check_manifest_health(
+            manifest,
+            min_tracked_maps=40,
+            min_consecutive_solves=2,
+        )
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("tracked maps 10 < required 40", message)
+        self.assertIn("last run did not solve every tracked map", message)
+        self.assertIn("regressions detected: 1", message)
+        self.assertIn("min consecutive solves 0 < required 2", message)
+
+    def test_check_manifest_flag_exits_without_solving(self) -> None:
+        manifest = {
+            "coverage": {
+                "tracked_maps": 43,
+                "all_tracked_solved_last_run": True,
+                "min_consecutive_solves": 2,
+                "total_regressions": 0,
+            }
+        }
+
+        with patch("scripts.watch_optimization.load_manifest", return_value=manifest), \
+             patch("scripts.watch_optimization.run_once") as run_once, \
+             patch("sys.argv", [
+                 "watch_optimization.py",
+                 "--check-manifest",
+                 "--min-tracked-maps",
+                 "40",
+                 "--min-consecutive-solves",
+                 "2",
+             ]):
             exit_code = main()
 
         self.assertEqual(exit_code, 0)

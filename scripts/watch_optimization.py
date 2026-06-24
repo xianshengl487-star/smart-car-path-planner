@@ -175,6 +175,38 @@ def print_manifest_summary(manifest: dict) -> None:
     print(format_manifest_summary(manifest))
 
 
+def check_manifest_health(
+    manifest: dict,
+    *,
+    min_tracked_maps: int = 1,
+    min_consecutive_solves: int = 1,
+) -> tuple[int, str]:
+    coverage = manifest.get("coverage", {})
+    tracked = int(coverage.get("tracked_maps") or 0)
+    regressions = int(coverage.get("total_regressions") or 0)
+    min_consecutive = int(coverage.get("min_consecutive_solves") or 0)
+    all_solved = bool(coverage.get("all_tracked_solved_last_run"))
+
+    failures: list[str] = []
+    if tracked < min_tracked_maps:
+        failures.append(f"tracked maps {tracked} < required {min_tracked_maps}")
+    if not all_solved:
+        failures.append("last run did not solve every tracked map")
+    if regressions > 0:
+        failures.append(f"regressions detected: {regressions}")
+    if min_consecutive < min_consecutive_solves:
+        failures.append(
+            f"min consecutive solves {min_consecutive} < required {min_consecutive_solves}"
+        )
+
+    if failures:
+        return 1, "FAIL: " + "; ".join(failures)
+    return (
+        0,
+        f"OK: tracked={tracked} min_consecutive={min_consecutive} regressions={regressions}",
+    )
+
+
 def solve_level_file(path: Path, max_expanded: int) -> dict:
     level = load_text_map(path)
     board = parse_level(level)
@@ -275,11 +307,22 @@ def main() -> int:
     parser.add_argument("--include-contest", action="store_true")
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--show-manifest", action="store_true", help="print saved coverage manifest and exit without solving")
+    parser.add_argument("--check-manifest", action="store_true", help="exit non-zero when saved coverage manifest is unhealthy")
+    parser.add_argument("--min-tracked-maps", type=int, default=1)
+    parser.add_argument("--min-consecutive-solves", type=int, default=1)
     args = parser.parse_args()
 
     if args.show_manifest:
         print_manifest_summary(load_manifest())
         return 0
+    if args.check_manifest:
+        exit_code, message = check_manifest_health(
+            load_manifest(),
+            min_tracked_maps=args.min_tracked_maps,
+            min_consecutive_solves=args.min_consecutive_solves,
+        )
+        print(message)
+        return exit_code
 
     while True:
         run_once(max_expanded=args.max_expanded, include_contest=args.include_contest)
