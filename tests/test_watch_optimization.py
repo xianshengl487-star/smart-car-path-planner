@@ -1,6 +1,6 @@
 import unittest
 
-from scripts.watch_optimization import summarize_results
+from scripts.watch_optimization import summarize_results, update_manifest
 
 
 class WatchOptimizationSummaryTests(unittest.TestCase):
@@ -41,6 +41,63 @@ class WatchOptimizationSummaryTests(unittest.TestCase):
         self.assertEqual(summary["slowest_by_elapsed"][0]["label"], "hard.txt")
         self.assertEqual(summary["total_expanded"], 1160)
         self.assertEqual(summary["max_expanded"], 900)
+
+    def test_manifest_tracks_consecutive_solves_and_regressions(self) -> None:
+        manifest = update_manifest(
+            {"schema": 1, "runs": 0, "maps": {}},
+            [
+                {
+                    "file": "map_a.txt",
+                    "level_id": 5001,
+                    "solved": True,
+                    "expanded": 50,
+                    "cost": 12,
+                    "pushes": 3,
+                }
+            ],
+            "2026-06-24T00:00:00+00:00",
+        )
+        manifest = update_manifest(
+            manifest,
+            [
+                {
+                    "file": "map_a.txt",
+                    "level_id": 5001,
+                    "solved": True,
+                    "expanded": 40,
+                    "cost": 12,
+                    "pushes": 3,
+                }
+            ],
+            "2026-06-24T00:30:00+00:00",
+        )
+
+        entry = manifest["maps"]["map_a.txt"]
+        self.assertEqual(entry["consecutive_solves"], 2)
+        self.assertEqual(entry["best_expanded"], 40)
+        self.assertEqual(entry["worst_expanded"], 50)
+        self.assertEqual(manifest["coverage"]["min_consecutive_solves"], 2)
+        self.assertTrue(manifest["coverage"]["all_tracked_solved_last_run"])
+
+        manifest = update_manifest(
+            manifest,
+            [
+                {
+                    "file": "map_a.txt",
+                    "level_id": 5001,
+                    "solved": False,
+                    "expanded": 250000,
+                    "message": "No solution within budget",
+                }
+            ],
+            "2026-06-24T01:00:00+00:00",
+        )
+
+        entry = manifest["maps"]["map_a.txt"]
+        self.assertEqual(entry["consecutive_solves"], 0)
+        self.assertEqual(entry["regression_count"], 1)
+        self.assertEqual(manifest["coverage"]["total_regressions"], 1)
+        self.assertFalse(manifest["coverage"]["all_tracked_solved_last_run"])
 
 
 if __name__ == "__main__":
