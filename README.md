@@ -110,6 +110,8 @@ python main.py --contest --no-gui --max-expanded 250000
 
 `hard_maps/` 现在可直接作为高难度示例地图库使用，已收录 48 张经过本项目求解器验证的 Boxoban hard 关卡。推荐先试这些样例：
 
+精选 16×12 高难示例也放在 `examples/16x12_hard/`，适合直接复制到手机端地图导入、Python 命令行或 STM32 性能模拟流程中。
+
 | Example | Why it is useful |
 |---------|------------------|
 | `boxoban_hard_000_083.txt` | 高扩展节点样例，适合观察复杂搜索 |
@@ -123,6 +125,9 @@ python main.py --hard-map-all --no-gui
 
 # Solve a single hard map by filename (relative to hard_maps/)
 python main.py --hard-map boxoban_hard_000_083.txt --no-gui
+
+# Solve a selected 16x12 example by filename
+python main.py --hard-map hard_16x12_high_expand_083.txt --no-gui
 
 # Solve a hard map by full path
 python main.py --hard-map "G:\路径规划\hard_maps\boxoban_hard_000_000.txt" --no-gui

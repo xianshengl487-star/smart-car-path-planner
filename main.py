@@ -134,8 +134,11 @@ def main() -> None:
         from planner.grid import load_text_map as _load_text_map
         hp = Path(args.hard_map)
         if not hp.is_file():
-            # Try relative to hard_maps/
-            hp = PROJECT_ROOT / "hard_maps" / args.hard_map
+            candidates = (
+                PROJECT_ROOT / "hard_maps" / args.hard_map,
+                PROJECT_ROOT / "examples" / "16x12_hard" / args.hard_map,
+            )
+            hp = next((candidate for candidate in candidates if candidate.is_file()), hp)
         if not hp.is_file():
             print(f"Hard map not found: {args.hard_map}")
             return
