@@ -8,7 +8,7 @@ The current sample set is converted from
 (`hard/000.txt`). Classic Sokoban maps allow any box to reach any target, while
 this project requires fixed numbering (`B1 -> T1`, etc.), so imported maps are
 screened by the project solver before being committed. The committed set
-currently contains 43 verified maps.
+currently contains 48 verified maps.
 
 ## Format
 
