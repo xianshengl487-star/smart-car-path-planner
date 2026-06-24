@@ -1,6 +1,7 @@
 import unittest
+from unittest.mock import patch
 
-from scripts.watch_optimization import summarize_results, update_manifest
+from scripts.watch_optimization import format_manifest_summary, main, summarize_results, update_manifest
 
 
 class WatchOptimizationSummaryTests(unittest.TestCase):
@@ -98,6 +99,50 @@ class WatchOptimizationSummaryTests(unittest.TestCase):
         self.assertEqual(entry["regression_count"], 1)
         self.assertEqual(manifest["coverage"]["total_regressions"], 1)
         self.assertFalse(manifest["coverage"]["all_tracked_solved_last_run"])
+
+    def test_format_manifest_summary_outputs_coverage(self) -> None:
+        manifest = {
+            "runs": 3,
+            "coverage": {
+                "tracked_maps": 2,
+                "last_run_solved": 2,
+                "last_run_total": 2,
+                "all_tracked_solved_last_run": True,
+                "min_consecutive_solves": 2,
+                "total_regressions": 0,
+            },
+            "maps": {
+                "map_a.txt": {
+                    "worst_expanded": 900,
+                    "consecutive_solves": 3,
+                    "regression_count": 0,
+                },
+                "map_b.txt": {
+                    "worst_expanded": 1200,
+                    "consecutive_solves": 2,
+                    "regression_count": 0,
+                },
+            },
+        }
+
+        text = format_manifest_summary(manifest)
+
+        self.assertIn("Manifest runs: 3", text)
+        self.assertIn("Tracked maps: 2", text)
+        self.assertIn("Last run solved: 2/2", text)
+        self.assertIn("All tracked solved last run: True", text)
+        self.assertLess(text.index("map_b.txt"), text.index("map_a.txt"))
+
+    def test_show_manifest_flag_exits_without_solving(self) -> None:
+        manifest = {"runs": 0, "coverage": {}, "maps": {}}
+
+        with patch("scripts.watch_optimization.load_manifest", return_value=manifest), \
+             patch("scripts.watch_optimization.run_once") as run_once, \
+             patch("sys.argv", ["watch_optimization.py", "--show-manifest"]):
+            exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        run_once.assert_not_called()
 
 
 if __name__ == "__main__":

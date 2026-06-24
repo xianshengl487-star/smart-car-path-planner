@@ -144,6 +144,37 @@ def save_manifest(manifest: dict, path: Path = MANIFEST_PATH) -> None:
     path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
+def format_manifest_summary(manifest: dict) -> str:
+    coverage = manifest.get("coverage", {})
+    maps = manifest.get("maps", {})
+    lines = [
+        f"Manifest runs: {int(manifest.get('runs') or 0)}",
+        f"Tracked maps: {int(coverage.get('tracked_maps') or 0)}",
+        f"Last run solved: {int(coverage.get('last_run_solved') or 0)}/{int(coverage.get('last_run_total') or 0)}",
+        f"All tracked solved last run: {bool(coverage.get('all_tracked_solved_last_run'))}",
+        f"Min consecutive solves: {int(coverage.get('min_consecutive_solves') or 0)}",
+        f"Total regressions: {int(coverage.get('total_regressions') or 0)}",
+    ]
+    hardest = sorted(
+        maps.items(),
+        key=lambda item: int(item[1].get("worst_expanded") or 0),
+        reverse=True,
+    )[:5]
+    if hardest:
+        lines.append("Hardest tracked maps:")
+        for name, entry in hardest:
+            lines.append(
+                f"  {name}: worst_expanded={int(entry.get('worst_expanded') or 0)} "
+                f"consecutive={int(entry.get('consecutive_solves') or 0)} "
+                f"regressions={int(entry.get('regression_count') or 0)}"
+            )
+    return "\n".join(lines)
+
+
+def print_manifest_summary(manifest: dict) -> None:
+    print(format_manifest_summary(manifest))
+
+
 def solve_level_file(path: Path, max_expanded: int) -> dict:
     level = load_text_map(path)
     board = parse_level(level)
@@ -243,7 +274,12 @@ def main() -> int:
     parser.add_argument("--max-expanded", type=int, default=250000)
     parser.add_argument("--include-contest", action="store_true")
     parser.add_argument("--once", action="store_true")
+    parser.add_argument("--show-manifest", action="store_true", help="print saved coverage manifest and exit without solving")
     args = parser.parse_args()
+
+    if args.show_manifest:
+        print_manifest_summary(load_manifest())
+        return 0
 
     while True:
         run_once(max_expanded=args.max_expanded, include_contest=args.include_contest)
