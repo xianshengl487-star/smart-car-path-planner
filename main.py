@@ -87,6 +87,10 @@ def parse_args() -> argparse.Namespace:
                         help="Path to a single grid screenshot/PNG (auto-recognize + solve).")
     parser.add_argument("--contest", action="store_true",
                         help="Batch process all PNGs under 比赛关卡/ (auto cell size, auto category, vanish rule).")
+    parser.add_argument("--hard-map", type=str, default=None,
+                        help="Path to a hard map .txt file in hard_maps/ or elsewhere.")
+    parser.add_argument("--hard-map-all", action="store_true",
+                        help="Solve all hard maps in hard_maps/ directory.")
     return parser.parse_args()
 
 
@@ -97,6 +101,51 @@ def main() -> None:
     if args.editor:
         from map_editor import main as editor_main
         editor_main()
+        return
+
+    # --- Hard map paths (priority over built-in levels) ---
+    if args.hard_map_all:
+        from planner.grid import load_text_map as _load_text_map
+        hard_dir = PROJECT_ROOT / "hard_maps"
+        if not hard_dir.is_dir():
+            print(f"Hard maps directory not found: {hard_dir}")
+            return
+        hard_files = sorted(hard_dir.glob("*.txt"))
+        if not hard_files:
+            print(f"No .txt files in {hard_dir}")
+            return
+        print(f"=== Solving {len(hard_files)} hard maps from {hard_dir.name}/ ===")
+        solved_count = 0
+        for hf in hard_files:
+            try:
+                level = _load_text_map(hf)
+                board = parse_level(level)
+                result = solve(board, max_expanded=args.max_expanded)
+                status = "OK" if result.solved else "FAIL"
+                print(f"[{status}] {hf.name}  cost={result.total_cost} pushes={result.pushes} expanded={result.expanded}")
+                if result.solved:
+                    solved_count += 1
+            except Exception as e:
+                print(f"[ERROR] {hf.name}: {e}")
+        print(f"\nHard maps: {solved_count}/{len(hard_files)} solved.")
+        return
+
+    if args.hard_map:
+        from planner.grid import load_text_map as _load_text_map
+        hp = Path(args.hard_map)
+        if not hp.is_file():
+            # Try relative to hard_maps/
+            hp = PROJECT_ROOT / "hard_maps" / args.hard_map
+        if not hp.is_file():
+            print(f"Hard map not found: {args.hard_map}")
+            return
+        print(f"=== Solving hard map: {hp.name} ===")
+        level = _load_text_map(hp)
+        board = parse_level(level)
+        result = solve(board, max_expanded=args.max_expanded)
+        final_path = OUTPUT_DIR / f"hard_{hp.stem}_final.png"
+        result.final_image = save_final_frame(board, result, final_path)
+        _print_summary(result)
         return
 
     # --- New image / contest paths (priority over built-in levels) ---

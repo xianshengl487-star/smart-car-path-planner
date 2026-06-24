@@ -122,8 +122,26 @@ python main.py --contest --no-gui --max-expanded 250000
 
 ### Hard Maps / 困难地图测试
 
+`hard_maps/` 现在可直接作为高难度示例地图库使用，已收录 48 张经过本项目求解器验证的 Boxoban hard 关卡。推荐先试这些样例：
+
+| Example | Why it is useful |
+|---------|------------------|
+| `boxoban_hard_000_083.txt` | 高扩展节点样例，适合观察复杂搜索 |
+| `boxoban_hard_000_076.txt` | 推箱次数较多，适合测试长路径回放 |
+| `boxoban_hard_000_113.txt` | 高复杂度窄通道样例，适合测试剪枝 |
+| `boxoban_hard_000_099.txt` | 总代价较高，适合压力测试 |
+
 ```bash
-# Run all 48+ hard map tests
+# Solve all 48+ hard maps in hard_maps/
+python main.py --hard-map-all --no-gui
+
+# Solve a single hard map by filename (relative to hard_maps/)
+python main.py --hard-map boxoban_hard_000_083.txt --no-gui
+
+# Solve a hard map by full path
+python main.py --hard-map "G:\路径规划\hard_maps\boxoban_hard_000_000.txt" --no-gui
+
+# Run hard map validation tests
 python -m pytest tests/test_hard_maps.py -v
 
 # Continuous 30-minute monitoring
@@ -160,6 +178,7 @@ python export_stm32.py
 - ✅ 动作回放校验：验证移动、推箱、箱子消失、炸弹移动和爆炸结果
 - ✅ 手机全量模式：解除主要计算上限，适合优先求可行解
 - ✅ STM32 性能模拟：限制扩展节点数、最大队列、动作数和运行时间
+- ✅ 地图粘贴导入：可将 hard_maps/ 中的地图文本粘贴到手机端运行
 
 ### Download / 下载
 
