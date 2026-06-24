@@ -27,42 +27,28 @@
 
 ## 📸 Screenshots / 效果展示
 
-### Level 1 — 直接推箱 (No Vision Required)
+### Hard Maps — High-Difficulty Examples / 困难地图示例
 
-| Generated | Recognized | Final |
-|:---------:|:----------:|:-----:|
-| — | — | ![Level 1 Final](docs/assets/screenshots/level_1_final.png) |
+<details open>
+<summary>Click to expand/collapse hard map previews</summary>
 
-### Level 2 — Vision Recognition Required
-
-| Generated | Recognized | Final |
-|:---------:|:----------:|:-----:|
-| ![Level 2 Generated](docs/assets/screenshots/level_2_generated.png) | ![Level 2 Recognized](docs/assets/screenshots/level_2_recognized.png) | ![Level 2 Final](docs/assets/screenshots/level_2_final.png) |
-
-### Level 3 — Vision + Bombs
-
-| Generated | Recognized | Final |
-|:---------:|:----------:|:-----:|
-| ![Level 3 Generated](docs/assets/screenshots/level_3_generated.png) | ![Level 3 Recognized](docs/assets/screenshots/level_3_recognized.png) | ![Level 3 Final](docs/assets/screenshots/level_3_final.png) |
-
-### Contest Screenshots (7 local screenshots all solved)
-
-<details>
-<summary>Click to expand contest results</summary>
-
-| # | Final |
-|---|-------|
-| 1 | ![Contest 1](docs/assets/screenshots/contest_final_53428f28b402930178d5bd50ed62f96c.png) |
-| 2 | ![Contest 2](docs/assets/screenshots/contest_final_736b36d097257ff65d3bf678b4b3ab92.png) |
-| 3 | ![Contest 3](docs/assets/screenshots/contest_final_91736944423264a6d920336d3e88ef2d.png) |
-| 4 | ![Contest 4](docs/assets/screenshots/contest_final_9f0fa28ac1e8b5f5489cf7391d42d30a.png) |
-| 5 | ![Contest 5](docs/assets/screenshots/contest_final_b86876d64c90f79ad016c253cbaecd2a.png) |
-| 6 | ![Contest 6](docs/assets/screenshots/contest_final_c44c1a3e19ab853e59c91fb32c1d9390.png) |
-| 7 | ![Contest 7](docs/assets/screenshots/contest_final_e0dd25e28d789e90e93d491b6054e310.png) |
+| Map | Preview | Run command |
+|-----|---------|-------------|
+| `boxoban_hard_000_000.txt` | ![boxoban_hard_000_000](docs/assets/screenshots/boxoban_hard_000_000.png) | `python main.py --hard-map boxoban_hard_000_000.txt --no-gui` |
+| `boxoban_hard_000_076.txt` | ![boxoban_hard_000_076](docs/assets/screenshots/boxoban_hard_000_076.png) | `python main.py --hard-map boxoban_hard_000_076.txt --no-gui` |
+| `boxoban_hard_000_083.txt` | ![boxoban_hard_000_083](docs/assets/screenshots/boxoban_hard_000_083.png) | `python main.py --hard-map boxoban_hard_000_083.txt --no-gui` |
+| `boxoban_hard_000_099.txt` | ![boxoban_hard_000_099](docs/assets/screenshots/boxoban_hard_000_099.png) | `python main.py --hard-map boxoban_hard_000_099.txt --no-gui` |
+| `boxoban_hard_000_113.txt` | ![boxoban_hard_000_113](docs/assets/screenshots/boxoban_hard_000_113.png) | `python main.py --hard-map boxoban_hard_000_113.txt --no-gui` |
 
 </details>
 
----
+### Built-in Levels / 内置关卡
+
+The GitHub front page now uses hard maps as the primary examples. Built-in 1/2/3 levels remain available for regression checks:
+
+```bash
+python main.py --all --no-gui
+```
 
 ## 🏗️ Architecture / 系统结构
 
