@@ -12,7 +12,7 @@ currently contains 43 verified maps.
 
 ## Format
 
-Each file is a 16×12 grid in MapTextCodec text format:
+Each file is a 16x12 grid in MapTextCodec text format:
 
 ```text
 // Optional comment lines
@@ -57,6 +57,7 @@ The file stem becomes the Level name in test output.
 ## Import More Boxoban Maps
 
 ```powershell
+.\scripts\import_more_hard_maps.ps1
 python scripts\import_boxoban_hard_maps.py --limit 30 --scan 300 --shards 000,001,002 --max-expanded 180000 --min-expanded 1000
 python -m pytest tests\test_hard_maps.py -v
 ```
@@ -64,6 +65,15 @@ python -m pytest tests\test_hard_maps.py -v
 The importer skips existing map files by default, so repeated runs keep scanning
 until they write `--limit` new maps. Use `--overwrite-existing` only when you
 intentionally want to refresh already committed maps.
+
+The helper script uses conservative defaults for continuing coverage:
+`--limit 5 --scan 250 --shards 000,001,002 --max-expanded 180000 --min-expanded 1000`.
+After importing, run the hard-map tests and manifest health check:
+
+```powershell
+python -m pytest tests\test_hard_maps.py -v
+python scripts\watch_optimization.py --check-manifest --min-tracked-maps 43 --min-consecutive-solves 3
+```
 
 ## Recurring 30-Minute Checks
 
