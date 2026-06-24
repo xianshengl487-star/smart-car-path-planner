@@ -72,7 +72,8 @@ After importing, run the hard-map tests and manifest health check:
 
 ```powershell
 python -m pytest tests\test_hard_maps.py -v
-python scripts\watch_optimization.py --check-manifest --min-tracked-maps 43 --min-consecutive-solves 3
+$hardMapCount = (Get-ChildItem -LiteralPath .\hard_maps -Filter "*.txt").Count
+python scripts\watch_optimization.py --check-manifest --min-tracked-maps $hardMapCount --min-consecutive-solves 3
 ```
 
 ## Recurring 30-Minute Checks

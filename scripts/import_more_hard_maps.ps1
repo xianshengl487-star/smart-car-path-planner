@@ -8,7 +8,10 @@
 #
 # After importing, run:
 #   python -m pytest tests\test_hard_maps.py -v
-#   python scripts\watch_optimization.py --check-manifest --min-tracked-maps 43 --min-consecutive-solves 3
+
+$hardMapsDir = Join-Path $PSScriptRoot "..\hard_maps"
+$hardMapCount = (Get-ChildItem -LiteralPath $hardMapsDir -Filter "*.txt").Count
+Write-Host "Existing maps before import: $hardMapCount"
 
 Write-Host "Importing more verified Boxoban hard maps..."
 Write-Host "Existing maps are skipped automatically."
@@ -17,7 +20,9 @@ Write-Host ""
 
 python scripts\import_boxoban_hard_maps.py --limit 5 --scan 250 --shards 000,001,002 --max-expanded 180000 --min-expanded 1000
 
+$hardMapCount = (Get-ChildItem -LiteralPath $hardMapsDir -Filter "*.txt").Count
+
 Write-Host ""
 Write-Host "Done. To verify new maps:"
 Write-Host "  python -m pytest tests\test_hard_maps.py -v"
-Write-Host "  python scripts\watch_optimization.py --check-manifest --min-tracked-maps 43 --min-consecutive-solves 3"
+Write-Host "  python scripts\watch_optimization.py --check-manifest --min-tracked-maps $hardMapCount --min-consecutive-solves 3"
