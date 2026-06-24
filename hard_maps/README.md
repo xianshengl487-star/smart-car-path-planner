@@ -8,7 +8,7 @@ The current sample set is converted from
 (`hard/000.txt`). Classic Sokoban maps allow any box to reach any target, while
 this project requires fixed numbering (`B1 -> T1`, etc.), so imported maps are
 screened by the project solver before being committed. The committed set
-currently contains 41 verified maps.
+currently contains 43 verified maps.
 
 ## Format
 
@@ -60,6 +60,10 @@ The file stem becomes the Level name in test output.
 python scripts\import_boxoban_hard_maps.py --limit 30 --scan 300 --shards 000,001,002 --max-expanded 180000 --min-expanded 1000
 python -m pytest tests\test_hard_maps.py -v
 ```
+
+The importer skips existing map files by default, so repeated runs keep scanning
+until they write `--limit` new maps. Use `--overwrite-existing` only when you
+intentionally want to refresh already committed maps.
 
 ## Recurring 30-Minute Checks
 

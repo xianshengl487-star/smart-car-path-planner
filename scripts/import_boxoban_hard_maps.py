@@ -119,12 +119,18 @@ def main() -> int:
         help="only write solved maps whose search expanded at least this many states",
     )
     parser.add_argument("--out", default="hard_maps")
+    parser.add_argument("--overwrite-existing", action="store_true", help="rewrite maps that already exist instead of skipping them")
     args = parser.parse_args()
 
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     written = 0
+    skipped_existing = 0
+    rejected_unsolved = 0
+    rejected_easy = 0
+    rejected_shape = 0
+    candidates = 0
     tmp = out_dir / ".candidate.tmp"
     for shard in parse_shards(args.shards):
         source_url = SOURCE_URL_TEMPLATE.format(shard=shard)
@@ -132,6 +138,12 @@ def main() -> int:
         for level_id, rows in parse_boxoban_levels(text)[: args.scan]:
             converted = convert_level(shard, level_id, rows)
             if converted is None:
+                rejected_shape += 1
+                continue
+            candidates += 1
+            target = out_dir / f"boxoban_hard_{shard}_{level_id:03d}.txt"
+            if target.exists() and not args.overwrite_existing:
+                skipped_existing += 1
                 continue
             tmp.write_text(converted, encoding="utf-8")
             level = load_text_map(tmp)
@@ -139,10 +151,11 @@ def main() -> int:
             clear_heuristic_cache()
             result = solve(board, max_expanded=args.max_expanded)
             if not result.solved:
+                rejected_unsolved += 1
                 continue
             if result.expanded < args.min_expanded:
+                rejected_easy += 1
                 continue
-            target = out_dir / f"boxoban_hard_{shard}_{level_id:03d}.txt"
             target.write_text(converted, encoding="utf-8")
             print(f"wrote {target} cost={result.total_cost} expanded={result.expanded}")
             written += 1
@@ -152,7 +165,10 @@ def main() -> int:
             break
 
     tmp.unlink(missing_ok=True)
-    print(f"written={written}")
+    print(
+        f"written={written} candidates={candidates} skipped_existing={skipped_existing} "
+        f"rejected_shape={rejected_shape} rejected_unsolved={rejected_unsolved} rejected_easy={rejected_easy}"
+    )
     return 0 if written else 1
 
 
