@@ -1,0 +1,15 @@
+// STM32 region-guided IDA* demo map.
+// 16x12, 3 boxes, compact region graph target.
+rows=12 cols=16 level=6101 heading=R recognition=false scanBombs=false allowBombPush=false
+# # # # # # # # # # # # # # # #
+# P . . . . # . . . . . . . . #
+# . # # # . # . # # # # # . . #
+# . # B1 . . . . . B2 . . # . . #
+# . # . # # # # # . # . # . . #
+# . . . . . . . # . # . # . . #
+# # # # # # . # . # . # . . . #
+# . . . . . # . . . . . . . . #
+# . # # # . # # # # # # # . . #
+# . . T1 . . . T2 . . B3 . T3 . . #
+# . . . . . . . . . . . . . . #
+# # # # # # # # # # # # # # # #
