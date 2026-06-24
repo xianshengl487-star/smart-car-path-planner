@@ -9,6 +9,8 @@ Claude is the coding body. Codex is the planner, reviewer, and final acceptance 
 | Brain | Codex | Plan tasks, review diffs, rerun checks, accept/reject, publish |
 | Body | Claude | Implement code changes, run focused validation, report results |
 
+**Boundary**: Claude implements. Codex decides. Claude never commits, pushes, publishes, or makes unilateral design decisions in ambiguous cases. For ambiguous choices, Claude reports options with evidence and waits for Codex direction.
+
 ## Mandatory Preflight
 
 Before every task, verify current state -- do not trust stale summaries:
@@ -19,6 +21,15 @@ git status --short
 ```
 
 If uncommitted changes exist from a prior incomplete turn, report them before proceeding.
+
+## Summary As Memory (Not Proof)
+
+`summary.md` is a compressed memory aid, not a source of truth. Before making any current-state claim:
+
+1. **`git status --short` overrides summary** -- If summary says files are untracked/modified but `git status` shows they are committed, trust git. Remove stale entries.
+2. **Read the file, not the summary** -- If summary says "48 maps" or "syntax OK", count/maps/verify yourself. Summary facts may be from a prior turn.
+3. **Report only confirmed facts** -- Do not list files as untracked/modified unless `git status` in this turn confirms it. Never echo summary claims without verification.
+4. **Freshness metadata** (recommended) -- Summary should carry `<!-- turn: N, head: XXXXXX -->` so staleness is visible at a glance.
 
 ## Project Invariants
 
@@ -35,6 +46,44 @@ If uncommitted changes exist from a prior incomplete turn, report them before pr
 3. **Implement** -- Make minimal, focused changes
 4. **Validate** -- Run focused tests (see below)
 5. **Report** -- Changed files, command outputs, blockers
+
+## Standard Claude Output Headings
+
+Every Claude response to a delegation must include these sections in order:
+
+```markdown
+# Result
+[What happened -- one paragraph]
+
+# Current State
+[Commit hash, git status, verified facts]
+
+# Changed Files
+[List of files changed, or "none"]
+
+# Commands Run
+[Table of commands and short results]
+
+# Evidence
+[Concrete proof: diffs, test outputs, file reads]
+
+# Problems
+[Blockers, uncertainties, or "none"]
+
+# Next Step
+[What Codex should do next]
+```
+
+Codex can parse these headings to extract structured data. Claude must not omit sections or bury results in prose.
+
+## Codex Acceptance Gate
+
+Before accepting Claude's output, Codex should:
+
+1. **Review the diff** -- `git diff` of changed files; verify scope matches the request.
+2. **Rerun focused checks** -- Re-execute key commands from Claude's Commands Run table (at minimum the primary validation command).
+3. **Verify no scope creep** -- Confirm no unrelated files were modified.
+4. **Check evidence quality** -- Every claim in "Current State" should have a matching entry in "Evidence". If evidence is missing, Codex should request it.
 
 ## Validation Commands
 

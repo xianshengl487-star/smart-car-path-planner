@@ -26,7 +26,7 @@ rows=12 cols=16 level=201 heading=R recognition=false scanBombs=false allowBombP
 ### Header Fields
 | Field | Values | Default | Notes |
 |-------|--------|---------|-------|
-| `level` | int ≥ 101 | 201 | Used for levelId in decode |
+| `level` | int >= 101 | 201 | Used for levelId in decode |
 | `heading` | U/D/L/R | R | Start heading |
 | `recognition` | true/false | false | Requires approach recognition |
 | `scanBombs` | true/false | false | Must scan for bombs |
@@ -38,11 +38,11 @@ rows=12 cols=16 level=201 heading=R recognition=false scanBombs=false allowBombP
 | `.` | Empty cell |
 | `#` | Wall |
 | `P` | Player start |
-| `1`–`4` | Boxes (B1–B4) |
-| `a`–`d` | Targets (T1–T4) |
+| `1`-`4` | Boxes (B1-B4) |
+| `a`-`d` | Targets (T1-T4) |
 | `X` | Bomb |
-| `B1`–`B4` | Boxes, human-readable form |
-| `T1`–`T4` | Targets, human-readable form |
+| `B1`-`B4` | Boxes, human-readable form |
+| `T1`-`T4` | Targets, human-readable form |
 
 ### Row Format
 - **Spaced**: tokens separated by spaces: `. . # # # . . . .`
