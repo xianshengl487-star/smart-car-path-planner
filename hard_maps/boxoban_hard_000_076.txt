@@ -1,0 +1,15 @@
+// Source: DeepMind Boxoban hard/000.txt ; 76
+// Converted to fixed-number 12x16 format; verified solved by project solver.
+rows=12 cols=16 level=5076 heading=R recognition=false scanBombs=false allowBombPush=false
+# # # # # # # # # # # # # # # #
+# . . # # # # # # # # # # . . #
+# . . # . . . . . . . . # . . #
+# . . # . T1 . B1 T2 B2 . . # . . #
+# . . # # T3 . # # # T4 . # . . #
+# . . # . . B3 # # # . . # . . #
+# . . # # B4 . # # # # # # . . #
+# . . # # P # # # # # # # . . #
+# . . # # # # # # # # # # . . #
+# . . # # # # # # # # # # . . #
+# . . # # # # # # # # # # . . #
+# # # # # # # # # # # # # # # #

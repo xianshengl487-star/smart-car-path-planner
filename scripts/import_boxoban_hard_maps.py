@@ -20,7 +20,7 @@ if str(ROOT) not in sys.path:
 from planner.grid import load_text_map, parse_level
 from planner.solver import clear_heuristic_cache, solve
 
-SOURCE_URL = "https://raw.githubusercontent.com/google-deepmind/boxoban-levels/master/hard/000.txt"
+SOURCE_URL_TEMPLATE = "https://raw.githubusercontent.com/google-deepmind/boxoban-levels/master/hard/{shard}.txt"
 
 
 def parse_boxoban_levels(text: str) -> list[tuple[int, list[str]]]:
@@ -41,7 +41,7 @@ def parse_boxoban_levels(text: str) -> list[tuple[int, list[str]]]:
     return levels
 
 
-def convert_level(level_id: int, rows: list[str]) -> str | None:
+def convert_level(shard: str, level_id: int, rows: list[str]) -> str | None:
     boxes: list[tuple[int, int]] = []
     goals: list[tuple[int, int]] = []
     player: tuple[int, int] | None = None
@@ -88,18 +88,29 @@ def convert_level(level_id: int, rows: list[str]) -> str | None:
         grid[rr][cc] = f"T{i}"
 
     lines = [
-        f"// Source: DeepMind Boxoban hard/000.txt ; {level_id}",
+        f"// Source: DeepMind Boxoban hard/{shard}.txt ; {level_id}",
         "// Converted to fixed-number 12x16 format; verified solved by project solver.",
-        f"rows=12 cols=16 level={5000 + level_id} heading=R recognition=false scanBombs=false allowBombPush=false",
+        f"rows=12 cols=16 level={5000 + int(shard) * 1000 + level_id} heading=R recognition=false scanBombs=false allowBombPush=false",
     ]
     lines.extend(" ".join(row) for row in grid)
     return "\n".join(lines) + "\n"
+
+
+def parse_shards(raw: str) -> list[str]:
+    shards: list[str] = []
+    for part in raw.split(","):
+        value = part.strip()
+        if not value:
+            continue
+        shards.append(f"{int(value):03d}")
+    return shards
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int, default=5, help="number of solved maps to write")
     parser.add_argument("--scan", type=int, default=120, help="number of source maps to scan")
+    parser.add_argument("--shards", default="000", help="comma-separated Boxoban hard shard ids, e.g. 000,001,002")
     parser.add_argument("--max-expanded", type=int, default=80000)
     parser.add_argument(
         "--min-expanded",
@@ -110,29 +121,33 @@ def main() -> int:
     parser.add_argument("--out", default="hard_maps")
     args = parser.parse_args()
 
-    text = urllib.request.urlopen(SOURCE_URL, timeout=30).read().decode("utf-8")
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     written = 0
     tmp = out_dir / ".candidate.tmp"
-    for level_id, rows in parse_boxoban_levels(text)[: args.scan]:
-        converted = convert_level(level_id, rows)
-        if converted is None:
-            continue
-        tmp.write_text(converted, encoding="utf-8")
-        level = load_text_map(tmp)
-        board = parse_level(level)
-        clear_heuristic_cache()
-        result = solve(board, max_expanded=args.max_expanded)
-        if not result.solved:
-            continue
-        if result.expanded < args.min_expanded:
-            continue
-        target = out_dir / f"boxoban_hard_000_{level_id:03d}.txt"
-        target.write_text(converted, encoding="utf-8")
-        print(f"wrote {target} cost={result.total_cost} expanded={result.expanded}")
-        written += 1
+    for shard in parse_shards(args.shards):
+        source_url = SOURCE_URL_TEMPLATE.format(shard=shard)
+        text = urllib.request.urlopen(source_url, timeout=30).read().decode("utf-8")
+        for level_id, rows in parse_boxoban_levels(text)[: args.scan]:
+            converted = convert_level(shard, level_id, rows)
+            if converted is None:
+                continue
+            tmp.write_text(converted, encoding="utf-8")
+            level = load_text_map(tmp)
+            board = parse_level(level)
+            clear_heuristic_cache()
+            result = solve(board, max_expanded=args.max_expanded)
+            if not result.solved:
+                continue
+            if result.expanded < args.min_expanded:
+                continue
+            target = out_dir / f"boxoban_hard_{shard}_{level_id:03d}.txt"
+            target.write_text(converted, encoding="utf-8")
+            print(f"wrote {target} cost={result.total_cost} expanded={result.expanded}")
+            written += 1
+            if written >= args.limit:
+                break
         if written >= args.limit:
             break
 
