@@ -91,6 +91,10 @@ def parse_args() -> argparse.Namespace:
                         help="Path to a hard map .txt file in hard_maps/ or elsewhere.")
     parser.add_argument("--hard-map-all", action="store_true",
                         help="Solve all hard maps in hard_maps/ directory.")
+    parser.add_argument("--region-plan", action="store_true",
+                        help="Print the region/target-motion decomposition instead of running exact A*.")
+    parser.add_argument("--region-plan-compact", action="store_true",
+                        help="Print only target-motion region order for the region planning version.")
     return parser.parse_args()
 
 
@@ -145,6 +149,11 @@ def main() -> None:
         print(f"=== Solving hard map: {hp.name} ===")
         level = _load_text_map(hp)
         board = parse_level(level)
+        if args.region_plan or args.region_plan_compact:
+            from planner.region_planner import build_region_plan, format_region_plan, format_target_motion_plan
+            plan = build_region_plan(board)
+            print(format_target_motion_plan(plan) if args.region_plan_compact else format_region_plan(plan))
+            return
         result = solve(board, max_expanded=args.max_expanded)
         final_path = OUTPUT_DIR / f"hard_{hp.stem}_final.png"
         result.final_image = save_final_frame(board, result, final_path)

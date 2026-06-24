@@ -129,6 +129,12 @@ python main.py --hard-map boxoban_hard_000_083.txt --no-gui
 # Solve a selected 16x12 example by filename
 python main.py --hard-map hard_16x12_high_expand_083.txt --no-gui
 
+# Print the extra region/target-motion planning version
+python main.py --hard-map hard_16x12_high_expand_083.txt --region-plan
+
+# Compact target-motion order only
+python main.py --hard-map hard_16x12_high_expand_083.txt --region-plan-compact
+
 # Solve a hard map by full path
 python main.py --hard-map "G:\路径规划\hard_maps\boxoban_hard_000_000.txt" --no-gui
 
